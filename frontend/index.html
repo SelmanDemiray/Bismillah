@@ -1,534 +1,336 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Neural Forge</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <style>
-        body { font-family: 'Inter', sans-serif; }
-        .section { display: none; }
-        .section.active { display: block; }
-        .nav-link { transition: all 0.2s ease-in-out; }
-        .nav-link.active { background-color: #4f46e5; color: white; }
-        .locked-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(30,41,59,0.85); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; text-align: center; color: white; z-index: 10; }
-    </style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Neural Forge — Designer (Ultimate)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    .section { display: none; }
+    .section.active { display: block; }
+    .nav-link { transition: all 0.2s ease-in-out; }
+    .nav-link.active { background-color: #4f46e5; color: white; }
+    .locked-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(30,41,59,0.85); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; text-align: center; color: white; z-index: 10; }
+    #designer-canvas { background: linear-gradient(180deg, rgba(255,255,255,0.01), transparent); border-radius: 8px; }
+    .layer-box { cursor: pointer; }
+    .param-key { color: #94a3b8; }
+    .toolbar-btn { transition: transform .08s; }
+    .toolbar-btn:active { transform: scale(.98); }
+  </style>
 </head>
 <body class="bg-slate-900 text-gray-200">
+  <div class="flex h-screen">
+    <aside class="w-64 bg-slate-800 p-6 flex flex-col justify-between">
+      <div>
+        <h1 class="text-2xl font-bold text-white mb-6">Neural Forge</h1>
+        <nav class="space-y-2">
+          <a href="#home" class="nav-link block px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-700">Home</a>
+          <a href="#designer" class="nav-link block px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-700">Designer</a>
+          <a href="#datasets" class="nav-link block px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-700">Datasets</a>
+          <a href="#training" class="nav-link block px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-700">Training</a>
+          <a href="#inference" class="nav-link block px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-700">Inference</a>
+        </nav>
+      </div>
+      <div class="text-xs text-slate-500">
+        <p>Version 0.3.0 — Ultimate Designer</p>
+        <p>&copy; 2025 Neural Forge</p>
+      </div>
+    </aside>
 
-    <div class="flex h-screen">
-        <!-- Sidebar Navigation -->
-        <aside class="w-64 bg-slate-800 p-6 flex flex-col justify-between">
-            <div>
-                <h1 class="text-3xl font-bold text-white mb-10">Neural Forge</h1>
-                <nav class="space-y-2">
-                    <a href="#home" class="nav-link block px-4 py-2 rounded-lg text-lg font-medium hover:bg-slate-700">Home</a>
-                    <a href="#designer" class="nav-link block px-4 py-2 rounded-lg text-lg font-medium hover:bg-slate-700">Designer</a>
-                    <a href="#datasets" class="nav-link block px-4 py-2 rounded-lg text-lg font-medium hover:bg-slate-700">Datasets</a>
-                    <a href="#training" class="nav-link block px-4 py-2 rounded-lg text-lg font-medium hover:bg-slate-700">Training</a>
-                    <a href="#inference" class="nav-link block px-4 py-2 rounded-lg text-lg font-medium hover:bg-slate-700">Inference</a>
-                </nav>
+    <main class="flex-1 p-6 overflow-y-auto relative">
+      <!-- Home -->
+      <section id="home" class="section active">
+        <h2 class="text-3xl font-bold mb-4">Neural Forge — Ultimate Designer</h2>
+        <p class="text-gray-400 mb-6">Full transformer support (encoder-only, decoder-only, encoder-decoder), visual canvas with connections, presets (BERT/GPT/T5/DeepSeek), export/import, validation, local save and advanced editing.</p>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="bg-slate-800 p-4 rounded-lg">
+            <h3 class="font-semibold">Quick Templates</h3>
+            <div class="mt-3 space-y-2">
+              <button class="w-full bg-indigo-600 px-3 py-2 rounded toolbar-btn" onclick="copyDesign('transformer_encoder')">Transformer — Encoder only (BERT)</button>
+              <button class="w-full bg-indigo-600 px-3 py-2 rounded toolbar-btn" onclick="copyDesign('transformer_decoder')">Transformer — Decoder only (GPT)</button>
+              <button class="w-full bg-indigo-600 px-3 py-2 rounded toolbar-btn" onclick="copyDesign('transformer_ed')">Transformer — Encoder-Decoder (T5)</button>
+              <button class="w-full bg-green-600 px-3 py-2 rounded toolbar-btn" onclick="copyDesign('deepseek')">DeepSeek (research preset)</button>
             </div>
-            <div class="text-xs text-slate-500">
-                <p>Version 0.1.0-alpha</p>
-                <p>&copy; 2024 Your Company</p>
+          </div>
+
+          <div class="bg-slate-800 p-4 rounded-lg md:col-span-2">
+            <h3 class="font-semibold">What's new</h3>
+            <ul class="list-disc pl-5 mt-3 text-gray-300">
+              <li>Transformer block with full params (heads, head_dim, ff_dim, dropout, activation, normalization)</li>
+              <li>Decoder options: causal attention, cross-attention toggle and mask types</li>
+              <li>Visual arrows between layers, reorder by dragging in list, clone, group and parameter search</li>
+              <li>Save to LocalStorage and export/import design JSON</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- Designer -->
+      <section id="designer" class="section relative">
+        <h2 class="text-3xl font-bold mb-4">Model Designer — Visual & Powerful</h2>
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
+          <!-- Left controls -->
+          <div class="lg:col-span-1 bg-slate-800 p-4 rounded-lg">
+            <h3 class="font-semibold mb-2">Add Layer / Block</h3>
+            <div class="space-y-2">
+              <label class="text-sm text-gray-300">Block Type</label>
+              <select id="block-type" class="w-full bg-slate-700 p-2 rounded">
+                <option value="Dense">Dense</option>
+                <option value="Conv2D">Conv2D</option>
+                <option value="Flatten">Flatten</option>
+                <option value="Embedding">Embedding</option>
+                <option value="PositionalEncoding">PositionalEncoding</option>
+                <option value="TransformerBlock">TransformerBlock</option>
+                <option value="MultiHeadAttention">MultiHeadAttention</option>
+                <option value="LayerNorm">LayerNorm</option>
+                <option value="Dropout">Dropout</option>
+                <option value="Activation">Activation</option>
+                <option value="LSTM">LSTM</option>
+                <option value="Concat">Concat</option>
+                <option value="ResBlock">ResBlock</option>
+              </select>
+
+              <div id="params-area" class="space-y-2 mt-2"></div>
+
+              <div class="flex gap-2">
+                <button id="add-block-btn" class="flex-1 bg-indigo-600 px-3 py-2 rounded">Add</button>
+                <button id="add-attention-btn" class="bg-blue-600 px-3 py-2 rounded">Add MHA</button>
+              </div>
+
+              <div class="mt-3">
+                <label class="text-sm text-gray-300">Presets</label>
+                <div class="mt-2 space-y-2">
+                  <button class="w-full bg-amber-600 px-2 py-1 rounded" onclick="applyPreset('bert')">BERT-small</button>
+                  <button class="w-full bg-amber-600 px-2 py-1 rounded" onclick="applyPreset('gpt-lite')">GPT-lite</button>
+                  <button class="w-full bg-amber-600 px-2 py-1 rounded" onclick="applyPreset('t5')">T5-small (encoder-decoder)</button>
+                  <button class="w-full bg-green-600 px-2 py-1 rounded" onclick="applyPreset('deepseek')">DeepSeek Research</button>
+                </div>
+              </div>
+
+              <div class="mt-4">
+                <button id="export-json-btn" class="w-full bg-slate-700 px-3 py-2 rounded">Export JSON</button>
+                <input id="import-json" type="file" accept="application/json" class="hidden" />
+                <button id="import-json-btn" class="w-full mt-2 bg-slate-700 px-3 py-2 rounded">Import JSON</button>
+                <button id="save-local-btn" class="w-full mt-2 bg-emerald-600 px-3 py-2 rounded">Save to Local</button>
+                <button id="load-local-btn" class="w-full mt-2 bg-yellow-600 px-3 py-2 rounded">Load from Local</button>
+              </div>
+
             </div>
-        </aside>
+          </div>
 
-        <!-- Main Content -->
-        <main class="flex-1 p-8 overflow-y-auto relative">
-            <!-- Home Section -->
-            <section id="home" class="section">
-                <h2 class="text-4xl font-bold mb-6">Welcome to Neural Forge</h2>
-                <p class="text-lg text-gray-400 mb-8">Your all-in-one platform for designing, training, and deploying neural networks with our proprietary, high-performance Rust engine.</p>
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <div class="bg-slate-800 p-6 rounded-lg">
-                        <h3 class="font-bold text-xl mb-2">Image Classification Model (CNN)</h3>
-                        <p class="text-gray-400 text-sm">A classic Convolutional Neural Network for identifying objects in images. Pre-configured for CIFAR-10.</p>
-                        <button class="mt-4 bg-indigo-600 px-4 py-2 rounded-lg hover:bg-indigo-500 transition-colors" onclick="copyDesign('cnn')">Use This Model</button>
-                    </div>
-                    <div class="bg-slate-800 p-6 rounded-lg">
-                        <h3 class="font-bold text-xl mb-2">Sentiment Analysis (RNN)</h3>
-                        <p class="text-gray-400 text-sm">A Recurrent Neural Network for text sentiment analysis. Ready for IMDB reviews.</p>
-                        <button class="mt-4 bg-indigo-600 px-4 py-2 rounded-lg hover:bg-indigo-500 transition-colors" onclick="copyDesign('rnn')">Use This Model</button>
-                    </div>
-                    <div class="bg-slate-800 p-6 rounded-lg">
-                        <h3 class="font-bold text-xl mb-2">Time-Series Forecasting (LSTM)</h3>
-                        <p class="text-gray-400 text-sm">An LSTM-based network for predicting future values from historical data.</p>
-                        <button class="mt-4 bg-indigo-600 px-4 py-2 rounded-lg hover:bg-indigo-500 transition-colors" onclick="copyDesign('lstm')">Use This Model</button>
-                    </div>
-                    <!-- more cards omitted for brevity in UI (still present in your original) -->
+          <!-- Canvas -->
+          <div class="lg:col-span-3">
+            <div class="bg-slate-800 p-4 rounded-lg mb-4">
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="font-semibold">Visual Canvas</h3>
+                <div class="flex gap-2">
+                  <button id="export-png" class="bg-indigo-600 px-3 py-1 rounded">Export PNG</button>
+                  <button id="clear-canvas" class="bg-red-600 px-3 py-1 rounded">Clear</button>
                 </div>
-            </section>
+              </div>
+              <div id="designer-canvas" class="w-full h-64 relative overflow-auto">
+                <svg id="canvas-svg" width="1200" height="300"></svg>
+              </div>
+            </div>
 
-            <!-- Designer Section -->
-            <section id="designer" class="section relative">
-                <!-- Designer lock (kept for parity with other sections, but unlocked by default) -->
-                <div class="locked-overlay" id="designer-lock" style="display:none">
-                    <div class="text-center">
-                        <h3 class="text-2xl font-bold">Designer Locked</h3>
-                    </div>
-                </div>
+            <div class="bg-slate-800 p-4 rounded-lg">
+              <div class="flex items-center justify-between">
+                <h3 class="font-semibold">Layers (list)</h3>
+                <div class="text-sm text-gray-400">Drag to reorder • Click a layer to edit</div>
+              </div>
+              <div id="layers-list" class="mt-3 max-h-80 overflow-auto"></div>
+            </div>
+          </div>
+        </div>
 
-                <h2 class="text-4xl font-bold mb-6">Model Designer</h2>
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    <!-- Controls -->
-                    <div class="lg:col-span-1 bg-slate-800 p-6 rounded-lg">
-                        <h3 class="font-bold text-xl mb-4">Add Layer</h3>
-                        <div class="space-y-3">
-                            <div>
-                                <label class="block text-sm text-gray-300 mb-1">Type</label>
-                                <select id="layer-type" class="w-full bg-slate-700 p-2 rounded">
-                                    <option>Dense</option>
-                                    <option>Conv2D</option>
-                                    <option>Flatten</option>
-                                    <option>LSTM</option>
-                                    <option>Dropout</option>
-                                    <option>Activation</option>
-                                </select>
-                            </div>
-                            <div id="units-container">
-                                <label class="block text-sm text-gray-300 mb-1">Units / Filters</label>
-                                <input id="layer-units" type="number" class="w-full bg-slate-700 p-2 rounded" value="64">
-                            </div>
-                            <div id="activation-container">
-                                <label class="block text-sm text-gray-300 mb-1">Activation</label>
-                                <select id="layer-activation" class="w-full bg-slate-700 p-2 rounded">
-                                    <option>ReLU</option>
-                                    <option>Sigmoid</option>
-                                    <option>Tanh</option>
-                                    <option>Softmax</option>
-                                    <option>Linear</option>
-                                </select>
-                            </div>
-                            <div id="dropout-container" style="display:none">
-                                <label class="block text-sm text-gray-300 mb-1">Dropout Rate</label>
-                                <input id="layer-dropout" type="number" step="0.05" min="0" max="1" class="w-full bg-slate-700 p-2 rounded" value="0.5">
-                            </div>
-                            <div class="flex gap-2">
-                                <button id="add-layer-btn" class="flex-1 bg-indigo-600 px-4 py-2 rounded hover:bg-indigo-500">Add Layer</button>
-                                <button id="clear-design-btn" class="bg-red-600 px-4 py-2 rounded hover:bg-red-500">Clear</button>
-                            </div>
-                            <div>
-                                <button id="save-design-btn" disabled class="w-full mt-2 bg-green-600 px-4 py-2 rounded-lg hover:bg-green-500">Save Design</button>
-                            </div>
-                        </div>
-                    </div>
+        <!-- Layer edit modal -->
+        <div id="layer-editor" class="fixed inset-0 flex items-center justify-center bg-black/50 hidden z-50">
+          <div class="bg-slate-800 p-4 rounded w-96">
+            <h4 id="editor-title" class="font-bold mb-2">Edit Layer</h4>
+            <div id="editor-body" class="space-y-2 text-sm text-gray-300"></div>
+            <div class="flex justify-between items-center mt-3">
+              <div class="text-xs text-gray-400">Tip: use numeric values for numbers</div>
+              <div class="flex gap-2">
+                <button id="editor-clone" class="bg-slate-700 px-3 py-1 rounded">Clone</button>
+                <button id="editor-save" class="bg-green-600 px-3 py-1 rounded">Save</button>
+                <button id="editor-cancel" class="bg-red-600 px-3 py-1 rounded">Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
 
-                    <!-- Layers list and summary -->
-                    <div class="lg:col-span-2">
-                        <div class="bg-slate-800 p-4 rounded-lg mb-4">
-                            <h3 class="font-bold text-lg mb-2">Layers</h3>
-                            <div id="layers-list"></div>
-                        </div>
+      </section>
 
-                        <div class="bg-slate-800 p-4 rounded-lg">
-                            <h3 class="font-bold text-lg mb-2">Design Summary</h3>
-                            <ol id="summary-list" class="list-decimal list-inside text-gray-300"></ol>
-                        </div>
-                    </div>
-                </div>
-            </section>
+    </main>
+  </div>
 
-            <!-- Datasets Section -->
-            <section id="datasets" class="section relative">
-                <div class="locked-overlay" id="datasets-lock" style="display:none">
-                    <div class="text-center">
-                        <h3 class="text-2xl font-bold">Datasets Locked</h3>
-                        <p class="mt-2 text-gray-300">Design a model first to unlock datasets.</p>
-                    </div>
-                </div>
+  <script>
+    // --- State ---
+    const appState = { modelDesigned:false, datasetDownloaded:false, datasetProcessed:false, modelTrained:false };
+    const designer = { layers: [] };
+    let editingIndex = -1;
 
-                <h2 class="text-4xl font-bold mb-6">Datasets</h2>
+    // --- Helpers ---
+    function showSection(id) {
+      document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+      const sec = document.getElementById(id); if (sec) sec.classList.add('active');
+      document.querySelectorAll('.nav-link').forEach(link=>link.classList.remove('active'));
+      const nav = document.querySelector(`.nav-link[href="#${id}"]`); if (nav) nav.classList.add('active');
+    }
 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div class="bg-slate-800 p-4 rounded-lg flex items-center justify-between">
-                        <div>
-                            <h3 class="font-bold text-lg">Image Segmentation</h3>
-                            <p class="text-sm text-gray-400">Datasets for pixel-wise image labeling, medical imaging, and more.</p>
-                        </div>
-                        <div class="flex items-center space-x-4">
-                            <span id="segmentation-status" class="text-sm font-medium text-gray-500">Not Downloaded</span>
-                            <button onclick="downloadDataset('segmentation')" class="bg-blue-600 px-4 py-2 rounded-lg hover:bg-blue-500">Download</button>
-                        </div>
-                    </div>
+    // --- Dynamic params UI for block types ---
+    const paramsArea = document.getElementById('params-area');
+    const blockTypeEl = document.getElementById('block-type');
 
-                    <div class="bg-slate-800 p-4 rounded-lg flex items-center justify-between">
-                        <div>
-                            <h3 class="font-bold text-lg">CIFAR-10</h3>
-                            <p class="text-sm text-gray-400">60,000 32x32 color images in 10 classes. Great for image classification.</p>
-                        </div>
-                        <div class="flex items-center space-x-4">
-                            <span id="cifar10-status" class="text-sm font-medium text-gray-500">Not Downloaded</span>
-                            <button onclick="downloadDataset('cifar10')" class="bg-blue-600 px-4 py-2 rounded-lg hover:bg-blue-500">Download</button>
-                        </div>
-                    </div>
-                </div>
+    function createInput(id, value='', attrs=''){
+      const inp = document.createElement('input'); inp.id = id; inp.className='w-full bg-slate-700 p-2 rounded mt-1'; inp.value = value; if (attrs) inp.setAttribute('data-attrs', attrs); return inp;
+    }
 
-                <div class="mt-8">
-                    <button id="process-data-btn" onclick="processData()" class="bg-green-600 px-6 py-3 rounded-lg text-lg font-semibold hover:bg-green-500 disabled:bg-gray-500 disabled:cursor-not-allowed" disabled>Process and Prepare Data</button>
-                    <button id="personal-data-btn" onclick="uploadPersonalData()" class="bg-yellow-600 px-6 py-3 rounded-lg text-lg font-semibold hover:bg-yellow-500 ml-4">Upload Personal Data</button>
-                </div>
-            </section>
+    function renderParamsFor(type, existingParams = {}){
+      paramsArea.innerHTML = '';
+      function addField(label, id, val='', attrs=''){
+        const wrapper = document.createElement('div'); wrapper.className='text-sm';
+        const lab = document.createElement('label'); lab.className='block text-gray-300'; lab.textContent = label;
+        const inp = createInput(id, (existingParams[id]!==undefined?existingParams[id]:val), attrs);
+        wrapper.appendChild(lab); wrapper.appendChild(inp); paramsArea.appendChild(wrapper);
+      }
 
-            <!-- Training Section -->
-            <section id="training" class="section relative">
-                <div class="locked-overlay" id="training-lock">
-                     <div class="text-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 mx-auto mb-4 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
-                        <h3 class="text-2xl font-bold">Section Locked</h3>
-                        <p class="mt-2 text-gray-300">Please design a model before starting the training process.</p>
-                    </div>
-                 </div>
-                <h2 class="text-4xl font-bold mb-6">Model Training & Monitoring</h2>
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    <!-- Hardware Monitoring -->
-                    <div class="lg:col-span-1 bg-slate-800 p-6 rounded-lg">
-                        <h3 class="font-bold text-xl mb-4">Live Hardware Stats</h3>
-                        <div class="space-y-4">
-                            <div>
-                                <h4 class="text-sm font-medium text-gray-400">Total CPU Usage</h4>
-                                <div class="bg-slate-700 rounded-full h-2.5 mt-1">
-                                    <div id="cpu-total-bar" class="bg-green-500 h-2.5 rounded-full" style="width: 0%"></div>
-                                </div>
-                            </div>
-                             <div>
-                                <h4 class="text-sm font-medium text-gray-400">Memory Usage</h4>
-                                <p class="text-lg font-semibold"><span id="mem-used">0</span> / <span id="mem-total">0</span> GB</p>
-                            </div>
-                             <div>
-                                <h4 class="text-sm font-medium text-gray-400">Energy Used (Training)</h4>
-                                <p class="text-lg font-semibold"><span id="energy-used">0.0000</span> Wh</p>
-                            </div>
-                             <div>
-                                <h4 class="text-sm font-medium text-gray-400">System Uptime</h4>
-                                <p class="text-lg font-semibold" id="uptime">0d 0h 0m 0s</p>
-                            </div>
-                        </div>
-                    </div>
-                     <!-- Training Control & Logs -->
-                    <div class="lg:col-span-2 bg-slate-800 p-6 rounded-lg">
-                        <h3 class="font-bold text-xl mb-4">Training Console</h3>
-                        <div class="mb-4">
-                            <button id="start-training-btn" class="bg-indigo-600 px-6 py-3 rounded-lg text-lg font-semibold hover:bg-indigo-500">Start Training</button>
-                        </div>
-                        <div id="training-log" class="bg-black h-64 rounded-md p-4 font-mono text-sm overflow-y-auto">
-                            <p class="text-gray-500">&gt; Waiting to start training...</p>
-                        </div>
-                    </div>
-                </div>
-            </section>
+      if (type === 'Dense'){ addField('Units','param-units',64,'number'); addField('Activation','param-activation','ReLU'); }
+      else if (type === 'Conv2D'){ addField('Filters','param-units',32,'number'); addField('Kernel','param-kernel',3,'number'); addField('Activation','param-activation','ReLU'); }
+      else if (type === 'Embedding'){ addField('Vocab Size','param-vocab',30000,'number'); addField('Dim','param-units',128,'number'); }
+      else if (type === 'PositionalEncoding'){ addField('Max Len','param-maxlen',512,'number'); addField('Dim','param-units',128,'number'); addField('Type','param-pe-type','sinusoidal'); }
+      else if (type === 'TransformerBlock'){
+        addField('Heads','param-heads',8,'number'); addField('Head Dim','param-headdim',64,'number'); addField('FF Dim','param-ff',2048,'number'); addField('Dropout','param-dropout',0.1,'number'); addField('Activation','param-ff-activation','GELU'); addField('Normalization','param-norm','LayerNorm'); addField('Causal (decoder)','param-causal',false,'checkbox'); addField('Cross-Attention (decoder)','param-cross',false,'checkbox'); }
+      else if (type === 'MultiHeadAttention'){ addField('Heads','param-heads',8,'number'); addField('Head Dim','param-headdim',64,'number'); addField('Causal','param-causal',false,'checkbox'); }
+      else if (type === 'LayerNorm'){ addField('Epsilon','param-eps',1e-6,'number'); }
+      else if (type === 'Dropout'){ addField('Rate','param-dropout',0.5,'number'); }
+      else if (type === 'LSTM'){ addField('Units','param-units',128,'number'); addField('Return Sequences','param-returnseq',false,'checkbox'); }
+      else if (type === 'Activation'){ addField('Activation','param-activation','ReLU'); }
+      else if (type === 'ResBlock'){ addField('Filters','param-units',64,'number'); addField('Repeat','param-repeat',2,'number'); }
+      else { addField('Note','param-note','No params'); }
 
-            <!-- Inference Section -->
-            <section id="inference" class="section relative">
-                <div class="locked-overlay" id="inference-lock">
-                     <div class="text-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 mx-auto mb-4 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
-                        <h3 class="text-2xl font-bold">Section Locked</h3>
-                        <p class="mt-2 text-gray-300">Please train a model before running inference tests.</p>
-                    </div>
-                 </div>
-                <h2 class="text-4xl font-bold mb-6">Inference Testing</h2>
-                <p class="text-gray-400">Test your trained model with new data.</p>
-            </section>
-
-        </main>
-    </div>
-
-    <script>
-        const API_BASE_URL = 'http://localhost:8080';
-
-        // --- State Management ---
-        const appState = {
-            modelDesigned: false,
-            datasetDownloaded: false,
-            datasetProcessed: false,
-            modelTrained: false,
-        };
-
-        // Designer state
-        const designerState = { layers: [] };
-
-        // --- Utility functions ---
-        function showSection(id) {
-            document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-            const sec = document.getElementById(id);
-            if (sec) sec.classList.add('active');
-
-            document.querySelectorAll('.nav-link').forEach(link => link.classList.remove('active'));
-            const nav = document.querySelector(`.nav-link[href="#${id}"]`);
-            if (nav) nav.classList.add('active');
+      // Patch checkbox inputs
+      paramsArea.querySelectorAll('input').forEach(inp=>{
+        if (inp.getAttribute('data-attrs') === 'checkbox'){
+          inp.type = 'checkbox'; inp.checked = existingParams[inp.id] === true || existingParams[inp.id] === 'true';
+        } else if (inp.getAttribute('data-attrs') === 'number'){
+          inp.type = 'number';
         }
+      });
+    }
 
-        function logToConsole(message, type = 'info') {
-            const logEl = document.getElementById('training-log');
-            if (!logEl) return;
-            const p = document.createElement('p');
-            if (type === 'error') p.className = 'text-red-400';
-            else if (type === 'success') p.className = 'text-green-400';
-            else p.className = 'text-gray-300';
-            p.textContent = `> ${new Date().toLocaleTimeString()}: ${message}`;
-            logEl.appendChild(p);
-            logEl.scrollTop = logEl.scrollHeight;
-        }
+    blockTypeEl.addEventListener('change', ()=> renderParamsFor(blockTypeEl.value));
+    renderParamsFor(blockTypeEl.value);
 
-        function formatBytes(bytes) {
-            if (!bytes) return '0 B';
-            const i = parseInt(Math.floor(Math.log(bytes) / Math.log(1024)), 10);
-            return `${(bytes / Math.pow(1024, i)).toFixed(2)} ${['B','KB','MB','GB','TB'][i]}`;
-        }
-        function formatUptime(seconds) {
-            const d = Math.floor(seconds / (3600*24));
-            const h = Math.floor(seconds % (3600*24) / 3600);
-            const m = Math.floor(seconds % 3600 / 60);
-            const s = Math.floor(seconds % 60);
-            return `${d}d ${h}h ${m}m ${s}s`;
-        }
+    // --- Add block logic ---
+    document.getElementById('add-block-btn').addEventListener('click', ()=>{
+      const type = blockTypeEl.value; const params = {};
+      paramsArea.querySelectorAll('input').forEach(inp=>{
+        const key = inp.id.replace('param-','');
+        if (inp.type === 'checkbox') params[key] = inp.checked;
+        else if (inp.type === 'number') params[key] = parseFloat(inp.value);
+        else params[key] = inp.value;
+      });
+      designer.layers.push({type, params}); renderLayersList(); renderCanvas(); appState.modelDesigned = true;
+    });
 
-        // --- State / UI updates ---
-        function updateUIState() {
-            // Ensure overlay elements exist
-            const designerLock = document.getElementById('designer-lock');
-            const datasetsLock = document.getElementById('datasets-lock');
-            const trainingLock = document.getElementById('training-lock');
-            const inferenceLock = document.getElementById('inference-lock');
+    document.getElementById('add-attention-btn').addEventListener('click', ()=>{ designer.layers.push({type:'MultiHeadAttention', params:{heads:8, headdim:64}}); renderLayersList(); renderCanvas(); appState.modelDesigned = true; });
 
-            if (designerLock) designerLock.style.display = 'none'; // designer always unlocked
-            if (datasetsLock) datasetsLock.style.display = appState.modelDesigned ? 'none' : 'flex';
-            if (trainingLock) trainingLock.style.display = appState.datasetProcessed ? 'none' : 'flex';
-            if (inferenceLock) inferenceLock.style.display = appState.modelTrained ? 'none' : 'flex';
+    // --- Presets ---
+    function applyPreset(name){
+      if (name==='bert'){
+        designer.layers = [ {type:'Embedding', params:{vocab:30000, units:128}}, {type:'PositionalEncoding', params:{maxlen:512, units:128, 'pe-type':'sinusoidal'}}, {type:'TransformerBlock', params:{heads:8, headdim:64, ff:512, 'param-dropout':0.1, 'param-ff-activation':'GELU'}}, {type:'TransformerBlock', params:{heads:8, headdim:64, ff:512, 'param-dropout':0.1, 'param-ff-activation':'GELU'}}, {type:'LayerNorm', params:{}} ];
+      } else if (name==='gpt-lite'){
+        designer.layers = [ {type:'Embedding', params:{vocab:30000, units:128}}, {type:'PositionalEncoding', params:{maxlen:512, units:128}}, {type:'TransformerBlock', params:{heads:8, headdim:64, ff:512, 'param-dropout':0.1, 'param-causal':true}}, {type:'TransformerBlock', params:{heads:8, headdim:64, ff:512, 'param-dropout':0.1, 'param-causal':true}} ];
+      } else if (name==='t5'){
+        designer.layers = [ {type:'Embedding', params:{vocab:32000, units:256}}, {type:'PositionalEncoding', params:{maxlen:512, units:256}}, {type:'TransformerBlock', params:{heads:8, headdim:64, ff:1024, 'param-cross':false}}, {type:'TransformerBlock', params:{heads:8, headdim:64, ff:1024, 'param-cross':true}}, {type:'LayerNorm', params:{}} ];
+      } else if (name==='deepseek'){
+        designer.layers = [ {type:'Embedding', params:{vocab:50000, units:256}}, {type:'PositionalEncoding', params:{maxlen:1024, units:256}}, {type:'TransformerBlock', params:{heads:16, headdim:64, ff:2048, 'param-dropout':0.1}}, {type:'TransformerBlock', params:{heads:16, headdim:64, ff:2048, 'param-dropout':0.1}}, {type:'TransformerBlock', params:{heads:16, headdim:64, ff:2048, 'param-dropout':0.1}}, {type:'LayerNorm', params:{}} ];
+      }
+      renderLayersList(); renderCanvas(); appState.modelDesigned = true;
+    }
 
-            const processBtn = document.getElementById('process-data-btn');
-            if (processBtn) processBtn.disabled = !appState.datasetDownloaded;
+    // --- Layers list rendering & interactions ---
+    function renderLayersList(){
+      const container = document.getElementById('layers-list'); container.innerHTML = '';
+      designer.layers.forEach((layer, idx)=>{
+        const row = document.createElement('div'); row.className = 'flex items-center justify-between bg-slate-700 rounded p-2 mb-2';
+        const left = document.createElement('div'); left.innerHTML = `<div class="font-semibold">${idx+1}. ${layer.type}</div><div class="text-xs text-gray-300">${Object.entries(layer.params||{}).slice(0,4).map(([k,v])=>`<span class=\"param-key\">${k}</span>: ${v}`).join(' • ')}</div>`;
+        const right = document.createElement('div'); right.className='flex gap-2 items-center';
+        const up = document.createElement('button'); up.className='text-sm text-blue-300'; up.innerHTML='↑'; up.onclick = ()=>{ if (idx>0){ [designer.layers[idx-1],designer.layers[idx]]=[designer.layers[idx],designer.layers[idx-1]]; renderLayersList(); renderCanvas(); } };
+        const down = document.createElement('button'); down.className='text-sm text-blue-300'; down.innerHTML='↓'; down.onclick = ()=>{ if (idx<designer.layers.length-1){ [designer.layers[idx+1],designer.layers[idx]]=[designer.layers[idx],designer.layers[idx+1]]; renderLayersList(); renderCanvas(); } };
+        const edit = document.createElement('button'); edit.className='text-sm text-yellow-300'; edit.innerHTML='Edit'; edit.onclick = ()=> openEditor(idx);
+        const clone = document.createElement('button'); clone.className='text-sm text-green-300'; clone.innerHTML='Clone'; clone.onclick = ()=>{ designer.layers.splice(idx+1,0, JSON.parse(JSON.stringify(layer))); renderLayersList(); renderCanvas(); };
+        const remove = document.createElement('button'); remove.className='text-sm text-red-400'; remove.innerHTML='Remove'; remove.onclick = ()=>{ designer.layers.splice(idx,1); renderLayersList(); renderCanvas(); };
+        right.appendChild(up); right.appendChild(down); right.appendChild(edit); right.appendChild(clone); right.appendChild(remove);
+        row.appendChild(left); row.appendChild(right); container.appendChild(row);
+      });
+    }
 
-            const saveBtn = document.getElementById('save-design-btn');
-            if (saveBtn) saveBtn.disabled = designerState.layers.length === 0;
-        }
+    // --- Canvas rendering (SVG) with basic connections ---
+    function renderCanvas(){
+      const svg = document.getElementById('canvas-svg');
+      const w = Math.max(1200, designer.layers.length * 220 + 200);
+      svg.setAttribute('width', w); svg.innerHTML = '';
+      const defs = document.createElementNS('http://www.w3.org/2000/svg','defs');
+      const marker = document.createElementNS('http://www.w3.org/2000/svg','marker'); marker.setAttribute('id','arrow'); marker.setAttribute('markerWidth','10'); marker.setAttribute('markerHeight','10'); marker.setAttribute('refX','10'); marker.setAttribute('refY','5'); marker.setAttribute('orient','auto');
+      const path = document.createElementNS('http://www.w3.org/2000/svg','path'); path.setAttribute('d','M0,0 L10,5 L0,10 Z'); path.setAttribute('fill','#94a3b8'); marker.appendChild(path); defs.appendChild(marker); svg.appendChild(defs);
 
-        // --- Dataset logic ---
-        function downloadDataset(datasetName) {
-            const statusEl = document.getElementById(`${datasetName}-status`);
-            if (!statusEl) return;
-            statusEl.textContent = 'Downloading...';
-            statusEl.classList.remove('text-gray-500');
-            statusEl.classList.add('text-yellow-400');
-            setTimeout(() => {
-                statusEl.textContent = 'Downloaded & Verified';
-                statusEl.classList.remove('text-yellow-400');
-                statusEl.classList.add('text-green-400');
-                appState.datasetDownloaded = true;
-                updateUIState();
-            }, 1200);
-        }
+      designer.layers.forEach((layer, i)=>{
+        const x = 20 + i * 220; const y = 40;
+        const g = document.createElementNS('http://www.w3.org/2000/svg','g'); g.setAttribute('transform', `translate(${x},${y})`); g.classList.add('layer-box');
+        const rect = document.createElementNS('http://www.w3.org/2000/svg','rect'); rect.setAttribute('width',200); rect.setAttribute('height',120); rect.setAttribute('rx',8); rect.setAttribute('fill','#0b1220'); rect.setAttribute('stroke','#334155'); rect.setAttribute('stroke-width',1);
+        g.appendChild(rect);
+        const title = document.createElementNS('http://www.w3.org/2000/svg','text'); title.setAttribute('x',12); title.setAttribute('y',28); title.setAttribute('fill','#e2e8f0'); title.setAttribute('font-size',14); title.textContent = layer.type; g.appendChild(title);
+        const ptext = document.createElementNS('http://www.w3.org/2000/svg','text'); ptext.setAttribute('x',12); ptext.setAttribute('y',48); ptext.setAttribute('fill','#94a3b8'); ptext.setAttribute('font-size',11);
+        ptext.textContent = Object.keys(layer.params||{}).slice(0,3).map(k=>`${k}:${layer.params[k]}`).join(' | ');
+        g.appendChild(ptext);
+        g.addEventListener('click', ()=> openEditor(i)); svg.appendChild(g);
 
-        async function processData() {
-            if (!appState.datasetDownloaded) return alert('Please download a dataset first.');
-            const input = document.createElement('input');
-            input.type = 'file';
-            input.accept = '.csv,.json';
-            input.onchange = async (e) => {
-                const file = e.target.files[0];
-                if (!file) return;
-                const fd = new FormData();
-                fd.append('dataset', file);
-                try {
-                    const res = await fetch(`${API_BASE_URL}/api/process_dataset`, { method: 'POST', body: fd });
-                    const result = await res.json();
-                    if (result.status === 'success') {
-                        appState.datasetProcessed = true;
-                        updateUIState();
-                        alert('Data processed successfully. Training unlocked.');
-                    } else {
-                        alert('Error: ' + (result.message || 'Unknown'));
-                    }
-                } catch (err) {
-                    alert('Failed to process data: ' + err);
-                }
-            };
-            input.click();
-        }
+        // draw connection from previous
+        if (i>0){ const x1 = 20 + (i-1)*220 + 200; const y1 = y + 60; const x2 = x; const y2 = y + 60; const line = document.createElementNS('http://www.w3.org/2000/svg','line'); line.setAttribute('x1', x1); line.setAttribute('y1', y1); line.setAttribute('x2', x2); line.setAttribute('y2', y2); line.setAttribute('stroke','#475569'); line.setAttribute('stroke-width','2'); line.setAttribute('marker-end','url(#arrow)'); svg.appendChild(line); }
+      });
+    }
 
-        async function uploadPersonalData() {
-            const input = document.createElement('input');
-            input.type = 'file';
-            input.accept = '.json';
-            input.onchange = async (e) => {
-                const file = e.target.files[0];
-                if (!file) return;
-                const fd = new FormData();
-                fd.append('dataset', file, 'personal.json');
-                try {
-                    const res = await fetch(`${API_BASE_URL}/api/process_dataset`, { method: 'POST', body: fd });
-                    const result = await res.json();
-                    if (result.status === 'success') {
-                        appState.datasetProcessed = true;
-                        updateUIState();
-                        alert('Personal data processed. Training unlocked.');
-                    } else {
-                        alert('Error: ' + (result.message || 'Unknown'));
-                    }
-                } catch (err) {
-                    alert('Failed to upload: ' + err);
-                }
-            };
-            input.click();
-        }
+    // --- Editor modal ---
+    function openEditor(idx){ editingIndex = idx; const layer = designer.layers[idx]; const editor = document.getElementById('layer-editor'); const body = document.getElementById('editor-body'); const title = document.getElementById('editor-title'); title.textContent = `Edit Layer — ${layer.type}`; body.innerHTML = '';
+      // build inputs for each param
+      for (const k in layer.params){ const v = layer.params[k]; const wrapper = document.createElement('div'); wrapper.className='text-sm'; const lab = document.createElement('label'); lab.className='block text-gray-300'; lab.textContent = k; let inp; if (typeof v === 'boolean'){ inp = document.createElement('input'); inp.type='checkbox'; inp.checked = v; inp.dataset.key = k; } else { inp = document.createElement('input'); inp.type='text'; inp.value = v; inp.dataset.key = k; inp.className='w-full bg-slate-700 p-2 rounded mt-1'; } wrapper.appendChild(lab); wrapper.appendChild(inp); body.appendChild(wrapper); }
+      // add new param inputs
+      const newWrap = document.createElement('div'); newWrap.className='text-sm mt-2'; newWrap.innerHTML = `<label class="block text-gray-300">New param key</label><input id="new-param-key" class="w-full bg-slate-700 p-2 rounded mt-1" />`;
+      const newValWrap = document.createElement('div'); newValWrap.className='text-sm mt-2'; newValWrap.innerHTML = `<label class="block text-gray-300">Value</label><input id="new-param-val" class="w-full bg-slate-700 p-2 rounded mt-1" />`;
+      body.appendChild(newWrap); body.appendChild(newValWrap);
+      editor.classList.remove('hidden');
+    }
 
-        // --- Training logic ---
-        async function startTraining() {
-            logToConsole('Initializing training sequence...');
-            try {
-                const response = await fetch(`${API_BASE_URL}/api/train`);
-                const data = await response.json();
-                if (data.status === 'success') {
-                    logToConsole(data.message, 'success');
-                    setTimeout(() => {
-                        logToConsole('Training complete! Model is ready for inference.', 'success');
-                        appState.modelTrained = true; updateUIState();
-                    }, 4000);
-                } else {
-                    logToConsole('Error: ' + (data.message || 'Unknown'), 'error');
-                }
-            } catch (err) {
-                logToConsole('Failed to connect to backend: ' + err, 'error');
-            }
-        }
+    document.getElementById('editor-cancel').addEventListener('click', ()=>{ document.getElementById('layer-editor').classList.add('hidden'); editingIndex=-1; });
+    document.getElementById('editor-clone').addEventListener('click', ()=>{ if (editingIndex<0) return; const clone = JSON.parse(JSON.stringify(designer.layers[editingIndex])); designer.layers.splice(editingIndex+1,0,clone); renderLayersList(); renderCanvas(); document.getElementById('layer-editor').classList.add('hidden'); editingIndex=-1; });
+    document.getElementById('editor-save').addEventListener('click', ()=>{ const editor = document.getElementById('layer-editor'); if (editingIndex<0) return; const layer = designer.layers[editingIndex]; const inputs = editor.querySelectorAll('[data-key]'); inputs.forEach(inp=>{ const key = inp.dataset.key; if (inp.type === 'checkbox') layer.params[key] = inp.checked; else if (!isNaN(parseFloat(inp.value)) && inp.value !== '') layer.params[key] = parseFloat(inp.value); else layer.params[key] = inp.value; }); const newKey = document.getElementById('new-param-key').value.trim(); const newVal = document.getElementById('new-param-val').value; if (newKey) { layer.params[newKey] = (newVal!=='' && !isNaN(parseFloat(newVal)))?parseFloat(newVal):newVal; } editor.classList.add('hidden'); editingIndex=-1; renderLayersList(); renderCanvas(); });
 
-        // --- Hardware Monitoring ---
-        async function fetchHardwareData() {
-            try {
-                const response = await fetch(`${API_BASE_URL}/api/hardware`);
-                if (!response.ok) return;
-                const data = await response.json();
-                const totalUsage = Array.isArray(data.cpu_usage) ? (data.cpu_usage.reduce((a,b)=>a+b,0)/data.cpu_usage.length) : (data.cpu_usage || 0);
-                const cpuBar = document.getElementById('cpu-total-bar'); if (cpuBar) cpuBar.style.width = `${totalUsage.toFixed(1)}%`;
-                const memUsed = document.getElementById('mem-used'); if (memUsed) memUsed.textContent = (data.used_memory ? (data.used_memory/1024/1024/1024).toFixed(2) : '0');
-                const memTotal = document.getElementById('mem-total'); if (memTotal) memTotal.textContent = (data.total_memory ? (data.total_memory/1024/1024/1024).toFixed(2) : '0');
-                const energy = document.getElementById('energy-used'); if (energy) energy.textContent = (data.energy_consumption_wh || 0).toFixed(4);
-                const uptime = document.getElementById('uptime'); if (uptime) uptime.textContent = formatUptime(data.uptime || 0);
-            } catch (err) {
-                console.error('Error fetching hardware data', err);
-            }
-        }
+    // --- Export / Import / Local Storage ---
+    document.getElementById('export-json-btn').addEventListener('click', ()=>{ const blob = new Blob([JSON.stringify({layers:designer.layers},null,2)],{type:'application/json'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download='model-design.json'; a.click(); URL.revokeObjectURL(url); });
+    document.getElementById('import-json-btn').addEventListener('click', ()=> document.getElementById('import-json').click());
+    document.getElementById('import-json').addEventListener('change', (e)=>{ const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = ()=>{ try{ const data = JSON.parse(r.result); if (data.layers) designer.layers = data.layers; else if (Array.isArray(data)) designer.layers = data; renderLayersList(); renderCanvas(); } catch(err){ alert('Invalid JSON'); } }; r.readAsText(f); });
 
-        // --- Designer UI functions ---
-        function renderLayers() {
-            const list = document.getElementById('layers-list');
-            const summary = document.getElementById('summary-list');
-            if (!list || !summary) return;
-            list.innerHTML = '';
-            summary.innerHTML = '';
-            if (designerState.layers.length === 0) {
-                list.innerHTML = '<p class="text-gray-400 mb-2">No layers added yet.</p>';
-            } else {
-                designerState.layers.forEach((layer, idx) => {
-                    let details = '';
-                    if (layer.units) details += `<span class="ml-2 text-sm text-gray-300">Units/Filters: ${layer.units}</span>`;
-                    if (layer.activation) details += `<span class="ml-2 text-sm text-gray-300">Activation: ${layer.activation}</span>`;
-                    if (layer.dropout !== undefined) details += `<span class="ml-2 text-sm text-yellow-300">Rate: ${layer.dropout}</span>`;
-                    const div = document.createElement('div');
-                    div.className = 'flex items-center justify-between bg-slate-700 rounded-lg px-4 py-2 mb-2';
-                    div.innerHTML = `\
-                        <span>\
-                            <span class=\"font-bold\">${layer.type}</span> ${details}\
-                        </span>\
-                        <span class=\"flex gap-2\">\
-                            <button class=\"text-blue-400 hover:text-blue-600 font-bold\" onclick=\"moveLayerUp(${idx})\">&#8593;</button>\
-                            <button class=\"text-blue-400 hover:text-blue-600 font-bold\" onclick=\"moveLayerDown(${idx})\">&#8595;</button>\
-                            <button class=\"text-red-400 hover:text-red-600 font-bold\" onclick=\"removeLayer(${idx})\">Remove</button>\
-                        </span>`;
-                    list.appendChild(div);
+    document.getElementById('save-local-btn').addEventListener('click', ()=>{ localStorage.setItem('neuralforge.design', JSON.stringify(designer.layers)); alert('Saved locally'); });
+    document.getElementById('load-local-btn').addEventListener('click', ()=>{ const raw = localStorage.getItem('neuralforge.design'); if (!raw) return alert('No saved design'); try{ designer.layers = JSON.parse(raw); renderLayersList(); renderCanvas(); } catch(e){ alert('Failed to load'); } });
 
-                    // summary
-                    let txt = `${idx+1}. ${layer.type}`;
-                    if (layer.units) txt += ` (${layer.units}` + (layer.activation ? `, ${layer.activation}` : '') + `)`;
-                    if (layer.dropout !== undefined) txt += ` (rate: ${layer.dropout})`;
-                    const li = document.createElement('li'); li.textContent = txt; summary.appendChild(li);
-                });
-            }
-            updateUIState();
-        }
+    // Export PNG
+    document.getElementById('export-png').addEventListener('click', ()=>{ const svg = document.getElementById('canvas-svg'); const xml = new XMLSerializer().serializeToString(svg); const blob = new Blob([xml],{type:'image/svg+xml'}); const url = URL.createObjectURL(blob); const img = new Image(); img.onload = ()=>{ const c = document.createElement('canvas'); c.width = svg.width.baseVal.value; c.height = svg.height.baseVal.value; const ctx = c.getContext('2d'); ctx.fillStyle = '#0b1220'; ctx.fillRect(0,0,c.width,c.height); ctx.drawImage(img,0,0); c.toBlob(b=>{ const u = URL.createObjectURL(b); const a = document.createElement('a'); a.href = u; a.download='canvas.png'; a.click(); URL.revokeObjectURL(u); }, 'image/png'); URL.revokeObjectURL(url); }; img.src = url; });
 
-        function removeLayer(idx) { designerState.layers.splice(idx,1); renderLayers(); }
-        function moveLayerUp(idx) { if (idx>0) { [designerState.layers[idx-1], designerState.layers[idx]] = [designerState.layers[idx], designerState.layers[idx-1]]; renderLayers(); } }
-        function moveLayerDown(idx) { if (idx < designerState.layers.length-1) { [designerState.layers[idx+1], designerState.layers[idx]] = [designerState.layers[idx], designerState.layers[idx+1]]; renderLayers(); } }
+    document.getElementById('clear-canvas').addEventListener('click', ()=>{ if (confirm('Clear design?')){ designer.layers = []; renderLayersList(); renderCanvas(); appState.modelDesigned=false; } });
 
-        function copyDesign(type) {
-            let layers = [];
-            if (type === 'cnn') layers = [ {type:'Conv2D', units:32, activation:'ReLU'}, {type:'Conv2D', units:64, activation:'ReLU'}, {type:'Flatten'}, {type:'Dense', units:128, activation:'ReLU'}, {type:'Dropout', dropout:0.5}, {type:'Dense', units:10, activation:'Softmax'} ];
-            else if (type === 'rnn') layers = [ {type:'LSTM', units:128, activation:'Tanh'}, {type:'Dense', units:1, activation:'Sigmoid'} ];
-            else if (type === 'lstm') layers = [ {type:'LSTM', units:64, activation:'Tanh'}, {type:'Dense', units:32, activation:'ReLU'}, {type:'Dense', units:1, activation:'Linear'} ];
-            designerState.layers = layers; renderLayers(); appState.modelDesigned = true; updateUIState(); showSection('designer'); alert('Design copied! You can now edit or train this model.');
-        }
+    // --- Init ---
+    function init(){ renderLayersList(); renderCanvas(); }
+    window.addEventListener('DOMContentLoaded', ()=>{ init(); document.querySelectorAll('.nav-link').forEach(link=>{ link.addEventListener('click',(e)=>{ e.preventDefault(); const id = link.getAttribute('href').substring(1); showSection(id); }); }); });
 
-        // --- Init and event wiring ---
-        window.addEventListener('DOMContentLoaded', () => {
-            const initialHash = window.location.hash.substring(1) || 'home';
-            showSection(initialHash);
+    // --- Quick copyDesign for top buttons ---
+    function copyDesign(type){ if (type==='transformer_encoder') applyPreset('bert'); else if (type==='transformer_decoder') applyPreset('gpt-lite'); else if (type==='transformer_ed') applyPreset('t5'); else if (type==='deepseek') applyPreset('deepseek'); renderLayersList(); renderCanvas(); }
+    window.copyDesign = copyDesign; window.applyPreset = applyPreset;
 
-            // nav links
-            document.querySelectorAll('.nav-link').forEach(link => {
-                link.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    const sectionId = e.target.getAttribute('href').substring(1);
-                    window.location.hash = sectionId;
-                    showSection(sectionId);
-                });
-            });
-
-            // layer UI wiring
-            const typeEl = document.getElementById('layer-type');
-            const unitsContainer = document.getElementById('units-container');
-            const activationContainer = document.getElementById('activation-container');
-            const dropoutContainer = document.getElementById('dropout-container');
-
-            if (typeEl) {
-                typeEl.addEventListener('change', (e) => {
-                    const type = e.target.value;
-                    unitsContainer.style.display = (type === 'Dense' || type === 'Conv2D' || type === 'LSTM') ? '' : 'none';
-                    activationContainer.style.display = (type === 'Dense' || type === 'Conv2D' || type === 'LSTM' || type === 'Activation') ? '' : 'none';
-                    dropoutContainer.style.display = (type === 'Dropout') ? '' : 'none';
-                });
-                typeEl.dispatchEvent(new Event('change'));
-            }
-
-            const addBtn = document.getElementById('add-layer-btn');
-            if (addBtn) addBtn.addEventListener('click', () => {
-                const type = document.getElementById('layer-type').value;
-                let layer = { type };
-                if (type === 'Dense' || type === 'Conv2D' || type === 'LSTM') {
-                    layer.units = parseInt(document.getElementById('layer-units').value,10) || 0;
-                    layer.activation = document.getElementById('layer-activation').value;
-                }
-                if (type === 'Dropout') layer.dropout = parseFloat(document.getElementById('layer-dropout').value) || 0;
-                if (type === 'Activation') layer.activation = document.getElementById('layer-activation').value;
-                designerState.layers.push(layer); renderLayers();
-            });
-
-            const saveBtn = document.getElementById('save-design-btn');
-            if (saveBtn) saveBtn.addEventListener('click', () => { appState.modelDesigned = true; updateUIState(); alert('Model design saved! You can now select and process a dataset.'); });
-
-            const clearBtn = document.getElementById('clear-design-btn');
-            if (clearBtn) clearBtn.addEventListener('click', () => { designerState.layers = []; renderLayers(); appState.modelDesigned = false; updateUIState(); });
-
-            const startTrainingBtn = document.getElementById('start-training-btn');
-            if (startTrainingBtn) startTrainingBtn.addEventListener('click', startTraining);
-
-            // process/upload buttons are inline using onclick attributes already, but ensure handlers exist globally
-            window.downloadDataset = downloadDataset;
-            window.processData = processData;
-            window.uploadPersonalData = uploadPersonalData;
-            window.copyDesign = copyDesign;
-
-            // start hardware polling
-            fetchHardwareData();
-            setInterval(fetchHardwareData, 2000);
-
-            updateUIState();
-            renderLayers();
-        });
-
-    </script>
+  </script>
 </body>
 </html>
