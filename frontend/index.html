@@ -1,1340 +1,712 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Neural Forge — Ultra+ (Optimized)</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <style>
-    /* A little custom CSS for the SVG background pattern and scrollbars */
-    body {
-        font-family: 'Inter', sans-serif;
-        --bg: #051225;
-        --panel: #071827;
-        --muted: #9fb2c8;
-        --accent: #7c3aed;
-        --success: #22c55e;
-        scrollbar-width: thin;
-        scrollbar-color: var(--accent) var(--panel);
-    }
-    body::-webkit-scrollbar {
-        width: 8px;
-    }
-    body::-webkit-scrollbar-track {
-        background: var(--panel);
-    }
-    body::-webkit-scrollbar-thumb {
-        background-color: var(--accent);
-        border-radius: 10px;
-        border: 2px solid var(--panel);
-    }
-    #canvas {
-        background-image: repeating-linear-gradient(0deg, rgba(255,255,255,0.015), rgba(255,255,255,0.015) 1px, transparent 1px, transparent 40px),
-                          repeating-linear-gradient(90deg, rgba(255,255,255,0.015), rgba(255,255,255,0.015) 1px, transparent 1px, transparent 40px);
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NeuroForge Studio - Rust AI Backend</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg-color: #1a1b26;
+            --sidebar-bg: #24283b;
+            --canvas-bg: #1e1f29;
+            --primary-accent: #7aa2f7;
+            --secondary-accent: #bb9af7;
+            --text-color: #c0caf5;
+            --text-dim: #a9b1d6;
+            --border-color: #414868;
+            --success-color: #9ece6a;
+            --error-color: #f7768e;
+            --font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+        }
+
+        body {
+            font-family: var(--font-family);
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* --- Main Layout --- */
+        #app-container {
+            display: flex;
+            width: 100%;
+            height: 100%;
+        }
+
+        #layer-palette {
+            width: 250px;
+            background-color: var(--sidebar-bg);
+            padding: 20px;
+            border-right: 1px solid var(--border-color);
+            overflow-y: auto;
+        }
+
+        #main-workspace {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+        }
+
+        #properties-panel {
+            width: 300px;
+            background-color: var(--sidebar-bg);
+            padding: 20px;
+            border-left: 1px solid var(--border-color);
+            overflow-y: auto;
+        }
+
+        h1, h2, h3 {
+            color: var(--primary-accent);
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 10px;
+            margin-top: 0;
+        }
+
+        h3 {
+            color: var(--secondary-accent);
+            font-size: 1.1em;
+        }
+
+        /* --- Layer Palette --- */
+        .layer-category h3 {
+            margin-bottom: 10px;
+        }
+        .draggable-layer {
+            background-color: var(--canvas-bg);
+            border: 1px solid var(--border-color);
+            padding: 12px;
+            margin-bottom: 10px;
+            border-radius: 5px;
+            cursor: grab;
+            transition: all 0.2s ease;
+            text-align: center;
+            font-weight: 500;
+        }
+        .draggable-layer:hover {
+            border-color: var(--primary-accent);
+            background-color: #2a2f4a;
+        }
+
+        /* --- Main Workspace Tabs --- */
+        .tab-nav {
+            display: flex;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 20px;
+        }
+        .tab-button {
+            padding: 10px 20px;
+            cursor: pointer;
+            border: none;
+            background: none;
+            color: var(--text-dim);
+            font-size: 1em;
+            border-bottom: 3px solid transparent;
+        }
+        .tab-button.active {
+            color: var(--primary-accent);
+            border-bottom: 3px solid var(--primary-accent);
+        }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        
+        /* --- Design Canvas --- */
+        #design-canvas {
+            background-color: var(--canvas-bg);
+            border: 2px dashed var(--border-color);
+            border-radius: 10px;
+            min-height: 400px;
+            padding: 20px;
+            overflow-y: auto;
+            flex-grow: 1;
+        }
+        .canvas-layer {
+            background-color: var(--sidebar-bg);
+            border: 1px solid var(--border-color);
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+        }
+        .canvas-layer.selected {
+            border-color: var(--secondary-accent);
+            box-shadow: 0 0 10px rgba(187, 154, 247, 0.3);
+        }
+        .canvas-layer .layer-name { font-weight: bold; }
+        .canvas-layer .layer-details { color: var(--text-dim); font-size: 0.9em; }
+
+        /* --- Properties Panel & Form Elements --- */
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: var(--text-dim);
+        }
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 8px;
+            background-color: var(--canvas-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            color: var(--text-color);
+            box-sizing: border-box;
+        }
+        
+        /* --- Training Tab --- */
+        #training-controls, #training-status {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .button {
+            padding: 10px 15px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: bold;
+            transition: all 0.2s ease;
+        }
+        .btn-primary {
+            background-color: var(--primary-accent);
+            color: var(--bg-color);
+        }
+        .btn-primary:hover {
+            opacity: 0.9;
+        }
+        .btn-danger {
+            background-color: var(--error-color);
+            color: var(--bg-color);
+        }
+        #training-log {
+            margin-top: 20px;
+            background: var(--canvas-bg);
+            border-radius: 5px;
+            padding: 15px;
+            height: 150px;
+            overflow-y: scroll;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.9em;
+            border: 1px solid var(--border-color);
+        }
+        #training-progress {
+            width: 100%;
+            appearance: none;
+            height: 10px;
+            border-radius: 5px;
+            background: var(--border-color);
+        }
+        #training-progress::-webkit-progress-bar {
+            background: var(--border-color);
+            border-radius: 5px;
+        }
+        #training-progress::-webkit-progress-value {
+            background: var(--success-color);
+            border-radius: 5px;
+        }
+
+        /* --- Inspect Tab --- */
+        #inspect-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(20px, 1fr));
+            gap: 2px;
+            background: var(--canvas-bg);
+            padding: 5px;
+            border: 1px solid var(--border-color);
+            max-height: 400px;
+            overflow: auto;
+        }
+        .grid-cell {
+            width: 100%;
+            padding-bottom: 100%; /* Aspect ratio hack */
+            position: relative;
+        }
+        .grid-cell-content {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.7em;
+            background-color: #333;
+        }
+
+    </style>
 </head>
-<body class="bg-gradient-to-b from-[#031022] to-[#071427] text-[#e6eef6]">
-  <div class="flex h-screen">
-    <!-- SIDEBAR -->
-    <aside class="w-72 p-5 bg-gradient-to-b from-[#071327] to-[#081526] border-r border-white/5 relative hidden lg:flex lg:flex-col">
-      <header class="text-lg font-extrabold text-[var(--accent)]">Neural Forge — Ultra+</header>
-      <nav class="mt-6 space-y-2" aria-label="Main navigation">
-        <a class="nav-link block px-3 py-2 rounded-lg text-sky-100 bg-[rgba(124,58,237,0.06)]" href="#home">Home</a>
-        <a class="nav-link block px-3 py-2 rounded-lg text-sky-100 hover:bg-[rgba(124,58,237,0.06)]" href="#models">Models</a>
-        <a class="nav-link block px-3 py-2 rounded-lg text-sky-100 hover:bg-[rgba(124,58,237,0.06)]" href="#designer">Designer</a>
-        <a class="nav-link block px-3 py-2 rounded-lg text-sky-100 hover:bg-[rgba(124,58,237,0.06)]" href="#datasets">Datasets</a>
-        <a class="nav-link block px-3 py-2 rounded-lg text-sky-100 hover:bg-[rgba(124,58,237,0.06)]" href="#training">Training</a>
-        <a class="nav-link block px-3 py-2 rounded-lg text-sky-100 hover:bg-[rgba(124,58,237,0.06)]" href="#inference">Inference</a>
-        <a class="nav-link block px-3 py-2 rounded-lg text-sky-100 hover:bg-[rgba(124,58,237,0.06)]" href="#metrics">Metrics</a>
-        <a class="nav-link block px-3 py-2 rounded-lg text-sky-100 hover:bg-[rgba(124,58,237,0.06)]" href="#settings">Settings</a>
-      </nav>
+<body>
 
-      <div class="mt-6 p-3 bg-white/5 rounded-lg flex items-center justify-between">
-        <div>
-          <div class="font-semibold">Project</div>
-          <div class="text-xs text-[var(--muted)]" id="project-name">Untitled Project</div>
-        </div>
-        <div class="flex flex-col gap-2">
-          <button id="save-project" class="px-2 py-1 rounded-md text-white bg-[var(--accent)] text-xs">Save</button>
-          <button id="load-project" class="px-2 py-1 rounded-md border border-white/10 text-xs">Load</button>
-        </div>
-      </div>
+    <div id="app-container">
+        <aside id="layer-palette">
+            <h1>NeuroForge</h1>
+            
+            <div class="layer-category">
+                <h3>Core Layers</h3>
+                <div class="draggable-layer" draggable="true" data-layer-type="Dense">Dense</div>
+                <div class="draggable-layer" draggable="true" data-layer-type="Activation">Activation</div>
+                <div class="draggable-layer" draggable="true" data-layer-type="Flatten">Flatten</div>
+                <div class="draggable-layer" draggable="true" data-layer-type="Dropout">Dropout</div>
+            </div>
 
-      <div class="mt-5 text-sm text-[var(--muted)]">Shortcuts</div>
-      <ul class="mt-2 pl-4 text-sm text-[var(--muted)] space-y-1">
-        <li><kbd class="bg-[#071827] rounded-md px-2 py-1 border border-white/5 text-xs">Ctrl/Cmd + S</kbd> Save</li>
-        <li><kbd class="bg-[#071827] rounded-md px-2 py-1 border border-white/5 text-xs">Ctrl/Cmd + E</kbd> Export</li>
-        <li><kbd class="bg-[#071827] rounded-md px-2 py-1 border border-white/5 text-xs">D</kbd> Duplicate</li>
-      </ul>
+            <div class="layer-category">
+                <h3>Convolutional</h3>
+                <div class="draggable-layer" draggable="true" data-layer-type="Conv2D">Conv2D</div>
+                <div class="draggable-layer" draggable="true" data-layer-type="MaxPooling2D">MaxPooling2D</div>
+                <div class="draggable-layer" draggable="true" data-layer-type="AveragePooling2D">AveragePooling2D</div>
+            </div>
+            
+            <div class="layer-category">
+                <h3>Recurrent</h3>
+                <div class="draggable-layer" draggable="true" data-layer-type="LSTM">LSTM</div>
+                <div class="draggable-layer" draggable="true" data-layer-type="GRU">GRU</div>
+                <div class="draggable-layer" draggable="true" data-layer-type="Embedding">Embedding</div>
+            </div>
 
-      <footer class="absolute bottom-4 left-5 text-xs text-[var(--muted)]">v0.4.1 • Verified build</footer>
-    </aside>
+            <div class="layer-category">
+                <h3>Transformer Blocks</h3>
+                <div class="draggable-layer" draggable="true" data-layer-type="MultiHeadAttention">Multi-Head Attention</div>
+                <div class="draggable-layer" draggable="true" data-layer-type="LayerNorm">Layer Normalization</div>
+                <div class="draggable-layer" draggable="true" data-layer-type="PositionalEncoding">Positional Encoding</div>
+                <div class="draggable-layer" draggable="true" data-layer-type="EncoderBlock">Encoder Block</div>
+                <div class="draggable-layer" draggable="true" data-layer-type="DecoderBlock">Decoder Block</div>
+            </div>
+        </aside>
 
-    <!-- MAIN CONTENT -->
-    <main class="flex-1 overflow-auto p-6">
-        <!-- Sections will be injected here -->
-    </main>
-  </div>
-  
-  <!-- FLOATING BOTTOM BAR -->
-  <div class="fixed left-0 lg:left-72 right-0 bottom-0 p-3 bg-gradient-to-t from-black/50 to-transparent flex justify-between text-sm text-[var(--muted)] pointer-events-none">
-    <div>© Neural Forge</div>
-    <div>Status: <span id="status-bottom">Idle</span></div>
-  </div>
+        <main id="main-workspace">
+            <nav class="tab-nav">
+                <button class="tab-button active" data-tab="design">Design</button>
+                <button class="tab-button" data-tab="train">Train</button>
+                <button class="tab-button" data-tab="inspect">Inspect</button>
+            </nav>
 
-  <!-- MODAL CONTAINER -->
-  <div id="modal-container" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 hidden"></div>
+            <div id="design-tab" class="tab-content active">
+                <h2>Model Architecture</h2>
+                <div id="design-canvas">
+                    </div>
+            </div>
 
-  <script type="module">
-    // --- APP INITIALIZATION ---
-    document.addEventListener('DOMContentLoaded', () => {
-      const app = new NeuralForgeApp();
-      app.init();
+            <div id="train-tab" class="tab-content">
+                <h2>Training Dashboard</h2>
+                <div id="training-controls">
+                    <div class="form-group">
+                        <label for="model-name">Model Name</label>
+                        <input type="text" id="model-name" value="custom_model">
+                    </div>
+                    <div class="form-group">
+                        <label for="learning-rate">Learning Rate</label>
+                        <input type="number" id="learning-rate" value="0.001" step="0.0001">
+                    </div>
+                    <div class="form-group">
+                        <label for="epochs">Epochs</label>
+                        <input type="number" id="epochs" value="10">
+                    </div>
+                    <div class="form-group">
+                        <label for="batch-size">Batch Size</label>
+                        <input type="number" id="batch-size" value="32">
+                    </div>
+                </div>
+                <div>
+                    <button id="start-train-btn" class="button btn-primary">Start Training</button>
+                    <button id="stop-train-btn" class="button btn-danger">Stop Training</button>
+                </div>
+                <div id="training-status">
+                    <div>
+                        <h3>Progress</h3>
+                        <p>Epoch: <span id="current-epoch">0</span>/<span id="total-epochs">10</span></p>
+                        <progress id="training-progress" value="0" max="100"></progress>
+                        <p>Loss: <span id="current-loss">N/A</span> | Accuracy: <span id="current-accuracy">N/A</span></p>
+                    </div>
+                    <div>
+                        <h3>Training Chart</h3>
+                        <canvas id="training-chart"></canvas>
+                    </div>
+                </div>
+                <h3>Training Log</h3>
+                <div id="training-log"></div>
+            </div>
+
+            <div id="inspect-tab" class="tab-content">
+                <h2>Inspect Model Parameters</h2>
+                <div class="form-group">
+                    <label for="inspect-layer-select">Select Layer</label>
+                    <select id="inspect-layer-select">
+                        </select>
+                </div>
+                <div class="form-group">
+                    <label for="inspect-param-select">Select Parameter</label>
+                    <select id="inspect-param-select">
+                        <option value="weights">Weights</option>
+                        <option value="biases">Biases</option>
+                    </select>
+                </div>
+                <h3>Matrix/Vector Visualization (Conceptual)</h3>
+                <p style="color: var(--text-dim); font-style: italic;">This is a visual mock-up. A real implementation would fetch and render the actual tensor data from the backend.</p>
+                <div id="inspect-grid">
+                    </div>
+            </div>
+        </main>
+
+        <aside id="properties-panel">
+            <h2>Properties</h2>
+            <div id="properties-content">
+                <p>Select a layer on the canvas to edit its properties.</p>
+            </div>
+        </aside>
+
+    </div>
+
+<script>
+    // --- Application State ---
+    let modelArchitecture = [];
+    let selectedLayerId = null;
+    let trainingStatusInterval = null;
+    let trainingChart = null;
+
+    // --- DOM Elements ---
+    const layerPalette = document.getElementById('layer-palette');
+    const designCanvas = document.getElementById('design-canvas');
+    const propertiesContent = document.getElementById('properties-content');
+    const startTrainBtn = document.getElementById('start-train-btn');
+    const trainingLog = document.getElementById('training-log');
+    const inspectLayerSelect = document.getElementById('inspect-layer-select');
+
+    // --- Layer Definitions ---
+    const layerDefs = {
+        'Dense': [
+            { name: 'units', type: 'number', default: 128 },
+            { name: 'activation', type: 'select', options: ['ReLU', 'Sigmoid', 'Tanh', 'Linear', 'GELU'], default: 'ReLU' }
+        ],
+        'Conv2D': [
+            { name: 'filters', type: 'number', default: 32 },
+            { name: 'kernel_size', type: 'number', default: 3 },
+            { name: 'stride', type: 'number', default: 1 }
+        ],
+        'MaxPooling2D': [
+            { name: 'pool_size', type: 'number', default: 2 },
+            { name: 'stride', type: 'number', default: 2 }
+        ],
+        'LSTM': [
+            { name: 'units', type: 'number', default: 64 }
+        ],
+        'Dropout': [
+            { name: 'rate', type: 'number', default: 0.5, step: 0.1 }
+        ],
+        'MultiHeadAttention': [
+            { name: 'num_heads', type: 'number', default: 8 },
+            { name: 'key_dim', type: 'number', default: 64 }
+        ],
+        // Default for layers with no editable params
+        'default': []
+    };
+
+    // --- Drag and Drop Logic ---
+    layerPalette.addEventListener('dragstart', (e) => {
+        if (e.target.classList.contains('draggable-layer')) {
+            e.dataTransfer.setData('text/plain', e.target.dataset.layerType);
+        }
     });
 
-    class NeuralForgeApp {
-        constructor() {
-            // State
-            this.design = { layers: [], connections: [] };
-            this.undoStack = [];
-            this.redoStack = [];
-            this.maxUndo = 80;
-            this.view = { x: 0, y: 0, scale: 1 };
-            this.activeDrag = null;
-            this.selectedNodeId = null;
-            this.multiSelectIds = [];
-            this.activeConnector = null;
-            this.isDirty = false;
+    designCanvas.addEventListener('dragover', (e) => {
+        e.preventDefault(); // Allow dropping
+    });
 
-            // DOM Element Caching
-            this.cacheDOMElements();
-            this.injectHTMLContent();
-            this.cacheInjectedDOMElements();
+    designCanvas.addEventListener('drop', (e) => {
+        e.preventDefault();
+        const layerType = e.dataTransfer.getData('text/plain');
+        addLayerToArchitecture(layerType);
+    });
+
+    function addLayerToArchitecture(layerType) {
+        const layerId = `layer_${Date.now()}`;
+        const layerProps = layerDefs[layerType] || layerDefs['default'];
+        
+        const newLayer = {
+            id: layerId,
+            type: layerType,
+            properties: {}
+        };
+        // Set default properties
+        layerProps.forEach(prop => {
+            newLayer.properties[prop.name] = prop.default;
+        });
+
+        modelArchitecture.push(newLayer);
+        renderModelCanvas();
+        logToConsole(`Added ${layerType} layer.`);
+    }
+
+    // --- Rendering Logic ---
+    function renderModelCanvas() {
+        designCanvas.innerHTML = '';
+        if (modelArchitecture.length === 0) {
+            designCanvas.innerHTML = '<p style="text-align:center; color: var(--text-dim);">Drag layers from the left palette to build your model.</p>';
         }
 
-        cacheDOMElements() {
-            this.mainContent = document.querySelector('main');
-            this.statusBottom = document.querySelector('#status-bottom');
-            this.modalContainer = document.querySelector('#modal-container');
-        }
+        modelArchitecture.forEach(layer => {
+            const layerEl = document.createElement('div');
+            layerEl.className = 'canvas-layer';
+            layerEl.dataset.layerId = layer.id;
+            if (layer.id === selectedLayerId) {
+                layerEl.classList.add('selected');
+            }
 
-        injectHTMLContent() {
-            // Using a single string with all sections to improve readability and management
-            this.mainContent.innerHTML = `
-                <section id="home" class="card-base">${this.getHomeContent()}</section>
-                <section id="models" class="card-base">${this.getModelsContent()}</section>
-                <section id="designer" class="card-base">${this.getDesignerContent()}</section>
-                <section id="datasets" class="card-base">${this.getDatasetsContent()}</section>
-                <section id="training" class="card-base">${this.getTrainingContent()}</section>
-                <section id="inference" class="card-base">${this.getInferenceContent()}</section>
-                <section id="metrics" class="card-base">${this.getMetricsContent()}</section>
-                <section id="settings" class="card-base">${this.getSettingsContent()}</section>
+            const details = Object.entries(layer.properties)
+                .map(([key, value]) => `${key}: ${value}`)
+                .join(', ');
+
+            layerEl.innerHTML = `
+                <span class="layer-name">${layer.type}</span>
+                <span class="layer-details">${details}</span>
             `;
+            layerEl.addEventListener('click', () => {
+                selectedLayerId = layer.id;
+                renderModelCanvas(); // Re-render to show selection
+                renderPropertiesPanel();
+            });
+            designCanvas.appendChild(layerEl);
+        });
+
+        updateInspectLayerSelect();
+    }
+
+    function renderPropertiesPanel() {
+        if (!selectedLayerId) {
+            propertiesContent.innerHTML = '<p>Select a layer on the canvas to edit its properties.</p>';
+            return;
         }
 
-        cacheInjectedDOMElements() {
-            // Cache elements that are now in the DOM
-            this.svg = document.querySelector('#svg');
-            this.layersEl = document.querySelector('#layers');
-            this.addType = document.querySelector('#add-type');
-            this.addParams = document.querySelector('#add-params');
-            this.statusEl = document.querySelector('#status');
-            this.consoleEl = document.querySelector('#console');
-            this.verifyOutputEl = document.querySelector('#verify-output');
-            this.lossCtx = document.querySelector('#chart-loss').getContext('2d');
-            this.accCtx = document.querySelector('#chart-acc').getContext('2d');
-            this.lossData = [];
-            this.accData = [];
+        const layer = modelArchitecture.find(l => l.id === selectedLayerId);
+        if (!layer) return;
+
+        propertiesContent.innerHTML = `<h3>${layer.type} Properties</h3>`;
+        const layerProps = layerDefs[layer.type] || layerDefs['default'];
+
+        if (layerProps.length === 0) {
+            propertiesContent.innerHTML += `<p>No configurable properties for this layer.</p>`;
         }
 
-        init() {
-            this.wireEventListeners();
-            this.renderAddParams(this.addType.value);
-            this.loadSavedDesign();
-            this.renderAll();
-            this.startStatusSimulation();
-            setTimeout(() => this.runVerification(), 200);
-        }
-
-        // --- HTML CONTENT GETTERS ---
-        getHomeContent() { return `
-            <div class="flex flex-col md:flex-row md:justify-between md:items-start gap-4">
-                <div class="flex-1">
-                    <h1 class="text-2xl font-semibold">Neural Forge — Ultra+</h1>
-                    <p class="text-[var(--muted)] mt-2">Visual neural network design — now cleaner, faster, and supporting many architecture families (CNNs, RNNs, MLPs, Autoencoders, GANs, GNNs, and Transformers).</p>
-                    <div class="mt-3 flex flex-wrap gap-2">
-                        <button id="quick-new" class="btn-accent">New</button>
-                        <button id="quick-load" class="btn-accent">Load</button>
-                        <button id="quick-save" class="btn-accent">Save</button>
-                        <button id="quick-export" class="btn-accent">Export Code</button>
-                    </div>
-                </div>
-                <div class="w-full md:w-80">
-                    <div class="card-nested">
-                        <div class="flex items-center justify-between">
-                            <strong>Live Status</strong>
-                            <span id="status" class="text-[var(--muted)]">Idle</span>
-                        </div>
-                        <div class="mt-3 space-y-2">
-                            <div>
-                                <div class="text-[var(--muted)] text-xs">CPU</div>
-                                <div class="h-2 rounded bg-[#021022] mt-1"><div id="cpubar" class="h-2 rounded" style="width:0%; background:linear-gradient(90deg,#06b6d4,#7c3aed)"></div></div>
-                            </div>
-                            <div>
-                                <div class="text-[var(--muted)] text-xs">Memory</div>
-                                <div class="h-2 rounded bg-[#021022] mt-1"><div id="membar" class="h-2 rounded" style="width:0%; background:linear-gradient(90deg,#f97316,#ef4444)"></div></div>
-                            </div>
-                        </div>
-                        <div class="mt-3 text-xs text-[var(--muted)]">Run verification below to ensure front-end & codegen working.</div>
-                        <div class="mt-3 flex gap-2"><button id="run-verify" class="btn-accent">Run Verification</button></div>
-                        <div id="verify-output" class="mt-3 text-sm text-[var(--muted)]"></div>
-                    </div>
-                </div>
-            </div>`;
-        }
-        
-        getModelsContent() {
-            const models = [
-                { name: 'BERT — Encoder', desc: 'Bidirectional encoder stack', preset: 'bert' },
-                { name: 'GPT — Decoder', desc: 'Causal decoder stack', preset: 'gpt' },
-                { name: 'ResNet — CNN', desc: 'Residual convolutional stack', preset: 'resnet' },
-                { name: 'LSTM — RNN', desc: 'Sequence model (RNN)', preset: 'lstm' },
-                { name: 'Autoencoder', desc: 'Compression / reconstruction', preset: 'autoencoder' },
-                { name: 'GAN — Gen/Disc', desc: 'Adversarial training skeleton', preset: 'gan' },
-                { name: 'GNN — Graph', desc: 'Graph processing skeleton', preset: 'gnn' },
-                { name: 'MLP — Feedforward', desc: 'Simple dense stack', preset: 'mlp' },
-            ];
-            return `
-                <div class="flex items-center justify-between">
-                    <h2 class="text-lg font-semibold">Templates & Presets</h2>
-                    <div class="text-[var(--muted)] text-sm hidden md:block">Start from curated templates or build from scratch</div>
-                </div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
-                    ${models.map(m => `
-                        <div class="card-nested">
-                            <h4 class="font-semibold">${m.name}</h4>
-                            <div class="text-[var(--muted)] text-xs mt-1">${m.desc}</div>
-                            <div class="mt-3"><button class="btn-accent-sm" data-preset="${m.preset}">Load</button></div>
-                        </div>
-                    `).join('')}
-                </div>`;
-        }
-
-        getDesignerContent() { return `
-            <div class="flex flex-col md:flex-row items-start justify-between gap-4">
-                <div>
-                    <h2 class="text-lg font-semibold">Designer</h2>
-                    <div class="text-[var(--muted)] text-sm">Drag nodes, snap-to-grid, multi-select, connect outputs → inputs.</div>
-                </div>
-                <div class="flex gap-2 items-center flex-wrap">
-                    <button id="generate-py" class="btn-accent-sm">PyTorch</button>
-                    <button id="generate-tf" class="btn-accent-sm">TensorFlow</button>
-                    <button id="generate-rs" class="btn-accent-sm">Rust</button>
-                </div>
-            </div>
-            <div class="mt-4 grid grid-cols-1 lg:grid-cols-[1fr,320px] gap-4">
-                <div class="relative">
-                    <div id="canvas" class="card-nested h-[560px] overflow-hidden relative border border-white/5 rounded-lg">
-                        <svg id="svg" width="100%" height="100%" aria-label="Design canvas"></svg>
-                    </div>
-                    <div class="absolute bottom-3 left-3 flex gap-2">
-                        <button id="zoom-in" class="btn-accent-sm">Zoom +</button>
-                        <button id="zoom-out" class="btn-accent-sm">Zoom -</button>
-                        <button id="fit-view" class="btn-accent-sm">Fit</button>
-                        <button id="undo" class="btn-secondary-sm">Undo</button>
-                        <button id="redo" class="btn-secondary-sm">Redo</button>
-                    </div>
-                </div>
-                <aside class="space-y-4">
-                    <div class="card-nested">
-                        <h4 class="font-semibold">Add Block</h4>
-                        <label class="input-label">Type</label>
-                        <select id="add-type" class="input-base">
-                            <option value="Embedding">Embedding</option>
-                            <option value="PositionalEncoding">PositionalEncoding</option>
-                            <option value="TransformerBlock">TransformerBlock</option>
-                            <option value="MultiHeadAttention">MultiHeadAttention</option>
-                            <option value="Dense">Dense</option>
-                            <option value="Conv2D">Conv2D</option>
-                            <option value="SeparableConv2D">SeparableConv2D</option>
-                            <option value="DepthwiseConv2D">DepthwiseConv2D</option>
-                            <option value="BatchNorm">BatchNorm</option>
-                            <option value="ResBlock">ResBlock</option>
-                            <option value="LSTM">LSTM</option>
-                            <option value="GRU">GRU</option>
-                            <option value="Dropout">Dropout</option>
-                            <option value="LayerNorm">LayerNorm</option>
-                            <option value="Flatten">Flatten</option>
-                            <option value="UpSample">UpSample</option>
-                            <option value="ConvTranspose2D">ConvTranspose2D</option>
-                            <option value="GraphConv">GraphConv</option>
-                        </select>
-                        <div id="add-params" class="mt-3"></div>
-                        <div class="mt-3 flex gap-2">
-                            <button id="btn-add" class="btn-accent-sm">Add</button>
-                            <button id="btn-add-mha" class="btn-accent-sm">Add MHA Block</button>
-                        </div>
-                    </div>
-                    <div class="card-nested">
-                        <h4 class="font-semibold">Layers</h4>
-                        <div id="layers" class="mt-3 max-h-72 overflow-auto"></div>
-                    </div>
-                </aside>
-            </div>`;
-        }
-        
-        getDatasetsContent() { return `
-            <h2 class="text-lg font-semibold">Datasets</h2>
-            <div class="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div class="card-nested">
-                    <label class="input-label">Quick download</label>
-                    <div class="mt-2 flex gap-2 flex-wrap">
-                        <button class="btn-accent-sm" onclick="this.dispatchEvent(new CustomEvent('download-dataset', {bubbles: true, detail: 'mnist'}))">MNIST</button>
-                        <button class="btn-accent-sm" onclick="this.dispatchEvent(new CustomEvent('download-dataset', {bubbles: true, detail: 'cifar10'}))">CIFAR-10</button>
-                        <button class="btn-accent-sm" onclick="this.dispatchEvent(new CustomEvent('download-dataset', {bubbles: true, detail: 'imagenet'}))">ImageNet-sample</button>
-                    </div>
-                    <div class="mt-3"><input type="file" id="dataset-file" class="input-base w-full"/></div>
-                </div>
-                <div class="card-nested">
-                    <h4 class="font-semibold">Preview</h4>
-                    <div id="data-preview" class="mt-2 text-[var(--muted)] min-h-[120px]">No dataset loaded</div>
-                </div>
-            </div>`;
-        }
-
-        getTrainingContent() { return `
-            <h2 class="text-lg font-semibold">Training</h2>
-            <div class="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div class="space-y-4">
-                    <div class="card-nested">
-                        <label class="input-label">Backend URL</label>
-                        <input id="backend-url" value="http://localhost:8080" class="input-base"/>
-                        <label class="input-label mt-3">API Token</label>
-                        <input id="backend-token" placeholder="Bearer ..." class="input-base"/>
-                        <div class="mt-3 flex gap-2 flex-wrap">
-                            <button id="connect-backend" class="btn-accent-sm">Connect</button>
-                            <button id="start-remote" class="btn-accent-sm">Start Remote</button>
-                            <button id="stream-logs" class="btn-accent-sm">Stream Logs</button>
-                        </div>
-                    </div>
-                    <div class="card-nested">
-                        <label class="input-label">Epochs</label>
-                        <input id="t-epochs" type="number" value="10" class="input-base"/>
-                        <label class="input-label mt-2">Batch Size</label>
-                        <input id="t-batch" type="number" value="32" class="input-base"/>
-                        <label class="input-label mt-2">Learning Rate</label>
-                        <input id="t-lr" type="number" step="0.0001" value="0.001" class="input-base"/>
-                        <div class="mt-3 flex gap-2">
-                            <button id="train-local" class="btn-accent-sm">Train Local</button>
-                            <button id="train-backend" class="btn-accent-sm">Train Backend</button>
-                        </div>
-                    </div>
-                </div>
-                <div class="space-y-4">
-                    <div class="card-nested">
-                        <h4 class="font-semibold">Console</h4>
-                        <div id="console" class="mt-2 min-h-[160px] max-h-[220px] overflow-auto bg-[#021022] p-2 rounded text-xs font-mono"></div>
-                        <div class="mt-2 flex gap-2">
-                            <button id="clear-console" class="btn-secondary-sm">Clear</button>
-                            <button id="download-logs" class="btn-secondary-sm">Download</button>
-                        </div>
-                    </div>
-                    <div class="card-nested">
-                        <h4 class="font-semibold">Run status</h4>
-                        <div class="text-[var(--muted)] text-sm mt-2">Status: <span id="run-status">Idle</span></div>
-                    </div>
-                </div>
-            </div>`;
-        }
-        
-        getInferenceContent() { return `
-            <h2 class="text-lg font-semibold">Inference</h2>
-            <div class="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div>
-                    <textarea id="infer-input" rows="6" placeholder="Enter text or load sample..." class="input-base w-full"></textarea>
-                    <div class="mt-2 flex gap-2">
-                        <button id="infer-run" class="btn-accent-sm">Run</button>
-                        <button id="infer-batch" class="btn-accent-sm">Batch</button>
-                    </div>
-                    <div id="infer-output" class="card-nested mt-3">No output</div>
-                </div>
-                <div>
-                    <div class="card-nested">
-                        <h4 class="font-semibold">Visualization</h4>
-                        <div id="infer-vis" class="mt-2 h-44 bg-[#021022] rounded"></div>
-                    </div>
-                </div>
-            </div>`;
-        }
-
-        getMetricsContent() { return `
-            <h2 class="text-lg font-semibold">Metrics</h2>
-            <div class="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <canvas id="chart-loss" width="600" height="200" class="bg-[#021022] rounded"></canvas>
-                <canvas id="chart-acc" width="600" height="200" class="bg-[#021022] rounded"></canvas>
-            </div>`;
-        }
-
-        getSettingsContent() { return `
-            <h2 class="text-lg font-semibold">Settings & Integrations</h2>
-            <div class="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div>
-                    <label class="input-label">Autosave Interval (min)</label>
-                    <input id="autosave" type="number" value="5" class="input-base w-32 mt-2"/>
-                    <div class="mt-3"><button id="apply-settings" class="btn-accent-sm">Apply</button></div>
-                </div>
-                <div class="card-nested">
-                    <strong>Integrations</strong>
-                    <div class="text-[var(--muted)] text-sm mt-2">Connect cloud training backends, S3 for model storage, or custom runners.</div>
-                </div>
-            </div>`;
-        }
-
-        // --- EVENT WIRING ---
-        wireEventListeners() {
-            // Navigation
-            document.querySelectorAll('aside nav a').forEach(a => a.addEventListener('click', e => this.handleNavClick(e, a)));
-
-            // Add Block
-            this.addType.addEventListener('change', () => this.renderAddParams(this.addType.value));
-            document.querySelector('#btn-add').addEventListener('click', () => this.addBlock());
-            document.querySelector('#btn-add-mha').addEventListener('click', () => this.addMhaBlock());
-
-            // Presets
-            document.querySelectorAll('[data-preset]').forEach(btn => btn.addEventListener('click', (e) => this.loadPreset(e.currentTarget.dataset.preset)));
-
-            // Canvas Interaction
-            this.svg.addEventListener('wheel', e => this.handleCanvasWheel(e), { passive: false });
-            this.svg.addEventListener('pointerdown', e => this.handlePointerDown(e));
-            document.addEventListener('pointermove', e => this.handlePointerMove(e));
-            document.addEventListener('pointerup', e => this.handlePointerUp(e));
-
-            // Canvas Controls
-            document.querySelector('#zoom-in').addEventListener('click', () => this.zoom(1.15));
-            document.querySelector('#zoom-out').addEventListener('click', () => this.zoom(0.85));
-            document.querySelector('#fit-view').addEventListener('click', () => this.fitView());
-            document.querySelector('#undo').addEventListener('click', () => this.undo());
-            document.querySelector('#redo').addEventListener('click', () => this.redo());
-
-            // Project Save/Load
-            document.querySelector('#save-project').addEventListener('click', () => this.saveDesign());
-            document.querySelector('#load-project').addEventListener('click', () => this.loadDesign());
-
-            // Quick Actions
-            document.querySelector('#quick-save').addEventListener('click', () => this.saveDesign(true));
-            document.querySelector('#quick-load').addEventListener('click', () => this.loadDesign(true));
-            document.querySelector('#quick-new').addEventListener('click', () => this.newDesign());
-            document.querySelector('#quick-export').addEventListener('click', () => this.exportCodeBundle());
-
-            // Codegen
-            document.querySelector('#generate-py').addEventListener('click', () => this.exportCode('pytorch'));
-            document.querySelector('#generate-tf').addEventListener('click', () => this.exportCode('tensorflow'));
-            document.querySelector('#generate-rs').addEventListener('click', () => this.exportCode('rust'));
-
-            // Training
-            document.querySelector('#train-local').addEventListener('click', () => this.startLocalTraining());
-            document.querySelector('#clear-console').addEventListener('click', () => { this.consoleEl.innerHTML = ''; });
-            document.querySelector('#download-logs').addEventListener('click', () => this.downloadText('training_logs.txt', this.consoleEl.innerText));
-
-            // Datasets
-            this.mainContent.addEventListener('download-dataset', e => this.downloadDataset(e.detail));
-            document.querySelector('#dataset-file').addEventListener('change', e => this.handleFileUpload(e));
+        layerProps.forEach(prop => {
+            const group = document.createElement('div');
+            group.className = 'form-group';
             
-            // Verification
-            document.querySelector('#run-verify').addEventListener('click', () => this.runVerification());
-
-            // Keyboard Shortcuts
-            document.addEventListener('keydown', e => this.handleShortcuts(e));
-        }
-        
-        // --- UI & RENDERING ---
-        
-        markDirty() {
-            if (!this.isDirty) {
-                this.isDirty = true;
-                requestAnimationFrame(() => {
-                    this.renderSVG();
-                    this.updateViewTransform();
-                    this.isDirty = false;
+            const label = document.createElement('label');
+            label.textContent = prop.name.replace(/_/g, ' ');
+            group.appendChild(label);
+            
+            let input;
+            if (prop.type === 'select') {
+                input = document.createElement('select');
+                prop.options.forEach(opt => {
+                    const option = document.createElement('option');
+                    option.value = opt;
+                    option.textContent = opt;
+                    if (layer.properties[prop.name] === opt) {
+                        option.selected = true;
+                    }
+                    input.appendChild(option);
                 });
-            }
-        }
-
-        renderAll() {
-            this.renderLayersList();
-            this.markDirty();
-        }
-
-        renderAddParams(type) {
-            this.addParams.innerHTML = ''; // Clear previous params
-            const paramsConfig = {
-                'Embedding': [{label: 'Vocab size', id: 'vocab', def: 30000}, {label: 'Dim', id: 'dim', def: 256}],
-                'PositionalEncoding': [{label: 'Max len', id: 'maxlen', def: 512}, {label: 'Dim', id: 'dim', def: 256}],
-                'TransformerBlock': [{label: 'Heads', id: 'heads', def: 8}, {label: 'Head dim', id: 'headdim', def: 64}, {label: 'FF dim', id: 'ffdim', def: 2048}, {label: 'Dropout', id: 'dropout', def: 0.1}, {label: 'Causal (decoder)', id: 'causal', type: 'checkbox'}, {label: 'Cross-attention', id: 'cross', type: 'checkbox'}],
-                'MultiHeadAttention': [{label: 'Heads', id: 'heads', def: 8}, {label: 'Key dim', id: 'headdim', def: 64}, {label: 'Causal', id: 'causal', type: 'checkbox'}],
-                'Dense': [{label: 'Units', id: 'units', def: 128}, {label: 'Activation', id: 'activation', def: 'relu'}],
-                'Conv2D': [{label: 'Filters', id: 'filters', def: 64}, {label: 'Kernel size', id: 'kernel', def: 3}, {label: 'Stride', id: 'stride', def: 1}],
-                'SeparableConv2D': [{label: 'Filters', id: 'filters', def: 64}, {label: 'Kernel', id: 'kernel', def: 3}],
-                'DepthwiseConv2D': [{label: 'Kernel', id: 'kernel', def: 3}],
-                'ResBlock': [{label: 'Filters', id: 'filters', def: 64}, {label: 'Use projection', id: 'proj', type: 'checkbox'}],
-                'BatchNorm': [{label: 'Momentum', id: 'momentum', def: 0.99}],
-                'LSTM': [{label: 'Units', id: 'units', def: 128}, {label: 'Return sequences', id: 'retseq', type: 'checkbox'}],
-                'GRU': [{label: 'Units', id: 'units', def: 128}, {label: 'Return sequences', id: 'retseq', type: 'checkbox'}],
-                'Dropout': [{label: 'Rate', id: 'rate', def: 0.5}],
-                'LayerNorm': [{label: 'Epsilon', id: 'eps', def: 1e-6}],
-                'GraphConv': [{label: 'Out dim', id: 'outdim', def: 64}],
-            };
-
-            const fields = paramsConfig[type] || [{label: 'Notes', id: 'note', def: ''}];
-            fields.forEach(field => {
-                const wrapper = document.createElement('div');
-                if (field.type === 'checkbox') {
-                    wrapper.className = 'mt-2 flex items-center gap-2';
-                    wrapper.innerHTML = `
-                        <input type="checkbox" id="add-${field.id}" ${field.def ? 'checked' : ''} class="input-checkbox">
-                        <label for="add-${field.id}" class="input-label mb-0">${field.label}</label>`;
-                } else {
-                    wrapper.className = 'mt-2';
-                    wrapper.innerHTML = `
-                        <label class="input-label">${field.label}</label>
-                        <input id="add-${field.id}" value="${field.def || ''}" class="input-base w-full mt-1">`;
-                }
-                this.addParams.appendChild(wrapper);
-            });
-        }
-        
-        renderLayersList() {
-            this.layersEl.innerHTML = '';
-            const frag = document.createDocumentFragment();
-            this.design.layers.forEach((layer, idx) => {
-                const row = document.createElement('div');
-                row.className = `flex justify-between items-center py-2 border-b border-white/5 cursor-pointer hover:bg-white/5 ${this.selectedNodeId === layer.id ? 'bg-violet-500/10' : ''}`;
-                row.addEventListener('click', () => {
-                    this.selectedNodeId = layer.id;
-                    this.multiSelectIds = [layer.id];
-                    this.renderLayersList();
-                    this.markDirty();
-                });
-
-                const paramsPreview = Object.entries(layer.params || {}).slice(0, 3).map(([k,v]) => `${k}:${v}`).join(' • ');
-                row.innerHTML = `
-                    <div>
-                        <div class="font-semibold">${idx + 1}. ${layer.type}</div>
-                        <div class="text-[var(--muted)] text-xs">${paramsPreview}</div>
-                    </div>
-                    <div class="flex gap-1">
-                        <button data-action="edit" data-idx="${idx}" class="btn-secondary-xs">Edit</button>
-                        <button data-action="dup" data-idx="${idx}" class="btn-secondary-xs">Dup</button>
-                        <button data-action="del" data-idx="${idx}" class="btn-secondary-xs text-red-400">Del</button>
-                    </div>`;
-                frag.appendChild(row);
-            });
-            this.layersEl.appendChild(frag);
-            
-            // Add event listeners for action buttons
-            this.layersEl.querySelectorAll('button[data-action]').forEach(btn => {
-                btn.addEventListener('click', e => {
-                    e.stopPropagation(); // Prevent row click event
-                    const action = e.currentTarget.dataset.action;
-                    const idx = parseInt(e.currentTarget.dataset.idx, 10);
-                    if (action === 'edit') this.openLayerEditor(idx);
-                    if (action === 'dup') this.duplicateLayer(idx);
-                    if (action === 'del') this.deleteLayer(idx);
-                });
-            });
-        }
-        
-        renderSVG() {
-            if (!this.svg) return;
-            const SVG_NS = 'http://www.w3.org/2000/svg';
-            
-            // Use a fragment to batch DOM manipulations
-            const fragment = document.createDocumentFragment();
-
-            // Defs for marker
-            const defs = document.createElementNS(SVG_NS, 'defs');
-            defs.innerHTML = `
-                <marker id="arrow" markerWidth="10" markerHeight="10" refX="10" refY="5" orient="auto">
-                    <path d="M0,0 L10,5 L0,10 Z" fill="#94a3b8"></path>
-                </marker>`;
-            fragment.appendChild(defs);
-
-            // Render Connections
-            this.design.connections.forEach(conn => {
-                const fromNode = this.design.layers.find(l => l.id === conn.from);
-                const toNode = this.design.layers.find(l => l.id === conn.to);
-                if (!fromNode || !toNode) return;
-
-                const x1 = fromNode.x + 200, y1 = fromNode.y + 50;
-                const x2 = toNode.x, y2 = toNode.y + 50;
-                const dx = Math.abs(x2 - x1), hx = Math.max(40, dx / 2);
-                const d = `M ${x1} ${y1} C ${x1 + hx} ${y1} ${x2 - hx} ${y2} ${x2} ${y2}`;
-                
-                const path = document.createElementNS(SVG_NS, 'path');
-                path.setAttribute('d', d);
-                path.setAttribute('stroke', '#2b4756');
-                path.setAttribute('stroke-width', '2');
-                path.setAttribute('fill', 'none');
-                path.setAttribute('marker-end', 'url(#arrow)');
-                fragment.appendChild(path);
-            });
-            
-            // Render Nodes
-            this.design.layers.forEach(layer => {
-                const g = document.createElementNS(SVG_NS, 'g');
-                g.setAttribute('transform', `translate(${layer.x}, ${layer.y})`);
-                g.dataset.id = layer.id;
-
-                const rect = document.createElementNS(SVG_NS, 'rect');
-                rect.setAttribute('width', 200);
-                rect.setAttribute('height', 100);
-                rect.setAttribute('rx', 10);
-                rect.setAttribute('fill', '#041827');
-                const isSelected = this.multiSelectIds.includes(layer.id);
-                rect.setAttribute('stroke', isSelected ? 'var(--accent)' : '#1e293b');
-                rect.setAttribute('stroke-width', isSelected ? '2' : '1');
-                g.appendChild(rect);
-
-                const title = document.createElementNS(SVG_NS, 'text');
-                title.setAttribute('x', 12);
-                title.setAttribute('y', 22);
-                title.setAttribute('fill', '#e6eef6');
-                title.setAttribute('font-size', '14');
-                title.textContent = layer.type;
-                g.appendChild(title);
-                
-                const paramsText = Object.entries(layer.params || {}).slice(0, 3).map(([k,v]) => `${k}:${v}`).join(' | ');
-                const desc = document.createElementNS(SVG_NS, 'text');
-                desc.setAttribute('x', 12);
-                desc.setAttribute('y', 42);
-                desc.setAttribute('fill', 'var(--muted)');
-                desc.setAttribute('font-size', '11');
-                desc.textContent = paramsText;
-                g.appendChild(desc);
-
-                // Input/Output connectors
-                const outputCircle = document.createElementNS(SVG_NS, 'circle');
-                outputCircle.setAttribute('cx', 200);
-                outputCircle.setAttribute('cy', 50);
-                outputCircle.setAttribute('r', 6);
-                outputCircle.setAttribute('fill', '#94a3b8');
-                outputCircle.dataset.action = 'connect-from';
-                g.appendChild(outputCircle);
-
-                const inputCircle = document.createElementNS(SVG_NS, 'circle');
-                inputCircle.setAttribute('cx', 0);
-                inputCircle.setAttribute('cy', 50);
-                inputCircle.setAttribute('r', 6);
-                inputCircle.setAttribute('fill', '#94a3b8');
-                inputCircle.dataset.action = 'connect-to';
-                g.appendChild(inputCircle);
-                
-                fragment.appendChild(g);
-            });
-
-            // Replace SVG content efficiently
-            this.svg.innerHTML = '';
-            this.svg.appendChild(fragment);
-        }
-
-        updateViewTransform() {
-            this.svg.style.transform = `translate(${this.view.x}px, ${this.view.y}px) scale(${this.view.scale})`;
-            this.svg.style.transformOrigin = 'top left';
-        }
-        
-        // --- EVENT HANDLERS ---
-        handleNavClick(e, link) {
-            e.preventDefault();
-            document.querySelectorAll('aside nav a').forEach(a => a.classList.remove('bg-[rgba(124,58,237,0.06)]'));
-            link.classList.add('bg-[rgba(124,58,237,0.06)]');
-            const targetId = link.getAttribute('href');
-            document.querySelector(targetId).scrollIntoView({ behavior: 'smooth' });
-        }
-        
-        handleCanvasWheel(e) {
-            e.preventDefault();
-            const delta = e.deltaY > 0 ? 0.9 : 1.1;
-            this.zoom(delta);
-        }
-
-        handlePointerDown(e) {
-            const target = e.target;
-            const nodeGroup = target.closest('g');
-            const pt = this.screenToWorld(e.clientX, e.clientY);
-
-            if (nodeGroup && nodeGroup.dataset.id) {
-                const nodeId = nodeGroup.dataset.id;
-                const node = this.design.layers.find(l => l.id === nodeId);
-                
-                if (target.dataset.action === 'connect-from') {
-                    this.startConnection(nodeId);
-                    return;
-                }
-                if (target.dataset.action === 'connect-to') {
-                    this.finishConnection(nodeId);
-                    return;
-                }
-
-                this.activeDrag = { type: 'node', node, offsetX: pt.x - node.x, offsetY: pt.y - node.y };
-                this.selectedNodeId = nodeId;
-
-                if (e.shiftKey) {
-                    const idx = this.multiSelectIds.indexOf(nodeId);
-                    if (idx > -1) this.multiSelectIds.splice(idx, 1);
-                    else this.multiSelectIds.push(nodeId);
-                } else if (!this.multiSelectIds.includes(nodeId)) {
-                    this.multiSelectIds = [nodeId];
-                }
-                
             } else {
-                this.activeDrag = { type: 'pan', startX: e.clientX, startY: e.clientY, initialX: this.view.x, initialY: this.view.y };
-                this.selectedNodeId = null;
-                this.multiSelectIds = [];
+                input = document.createElement('input');
+                input.type = prop.type;
+                input.value = layer.properties[prop.name];
+                if (prop.step) input.step = prop.step;
             }
-            this.renderLayersList();
-            this.markDirty();
+
+            input.addEventListener('change', (e) => {
+                const value = prop.type === 'number' ? parseFloat(e.target.value) : e.target.value;
+                layer.properties[prop.name] = value;
+                renderModelCanvas(); // Update details on canvas
+            });
+
+            group.appendChild(input);
+            propertiesContent.appendChild(group);
+        });
+    }
+
+    // --- Tab Switching Logic ---
+    document.querySelector('.tab-nav').addEventListener('click', (e) => {
+        if (e.target.classList.contains('tab-button')) {
+            document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            
+            e.target.classList.add('active');
+            document.getElementById(`${e.target.dataset.tab}-tab`).classList.add('active');
+        }
+    });
+
+    // --- Training Logic ---
+    startTrainBtn.addEventListener('click', () => {
+        logToConsole('Initiating training request...');
+        if (modelArchitecture.length === 0) {
+            logToConsole('ERROR: Cannot start training. Model architecture is empty.', 'error');
+            return;
         }
 
-        handlePointerMove(e) {
-            if (!this.activeDrag) return;
-            
-            if (this.activeDrag.type === 'pan') {
-                const dx = e.clientX - this.activeDrag.startX;
-                const dy = e.clientY - this.activeDrag.startY;
-                this.view.x = this.activeDrag.initialX + dx;
-                this.view.y = this.activeDrag.initialY + dy;
-                this.updateViewTransform();
-            } else if (this.activeDrag.type === 'node') {
-                const pt = this.screenToWorld(e.clientX, e.clientY);
-                const grid = 16;
-                const newX = Math.round((pt.x - this.activeDrag.offsetX) / grid) * grid;
-                const newY = Math.round((pt.y - this.activeDrag.offsetY) / grid) * grid;
-                
-                // Update all selected nodes if multi-selecting
-                const dx = newX - this.activeDrag.node.x;
-                const dy = newY - this.activeDrag.node.y;
+        const params = {
+            model_name: document.getElementById('model-name').value,
+            epochs: parseInt(document.getElementById('epochs').value),
+            batch_size: parseInt(document.getElementById('batch-size').value),
+            learning_rate: parseFloat(document.getElementById('learning-rate').value),
+            // In a real application, you would send the detailed architecture
+            architecture: modelArchitecture
+        };
 
-                this.design.layers.forEach(layer => {
-                    if (this.multiSelectIds.includes(layer.id)) {
-                        layer.x += dx;
-                        layer.y += dy;
+        // This is where you would send the 'params' object to your backend.
+        // The current Rust backend only accepts a simplified version.
+        // We will call it with the simplified params for demonstration.
+        const simplifiedParams = {
+            model_name: params.model_name,
+            epochs: params.epochs,
+            batch_size: params.batch_size,
+            learning_rate: params.learning_rate,
+        };
+
+        fetch('http://127.0.0.1:8080/api/train', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(simplifiedParams)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                logToConsole('Backend acknowledged training request. Starting status polling...');
+                startStatusPolling();
+                initializeChart();
+            } else {
+                logToConsole(`Error starting training: ${data.message}`, 'error');
+            }
+        })
+        .catch(err => {
+            logToConsole(`FATAL: Could not connect to backend. Is it running? ${err}`, 'error');
+        });
+    });
+
+    function startStatusPolling() {
+        if (trainingStatusInterval) clearInterval(trainingStatusInterval);
+
+        trainingStatusInterval = setInterval(() => {
+            fetch('http://127.0.0.1:8080/api/train/status')
+                .then(response => response.json())
+                .then(status => {
+                    updateTrainingUI(status);
+                    if (!status.is_training) {
+                        logToConsole('Training finished!');
+                        clearInterval(trainingStatusInterval);
                     }
+                })
+                .catch(err => {
+                    logToConsole('Polling failed. Stopping.', 'error');
+                    clearInterval(trainingStatusInterval);
                 });
-                this.markDirty();
-            }
-        }
+        }, 1500); // Poll every 1.5 seconds
+    }
 
-        handlePointerUp(e) {
-            if (this.activeDrag && this.activeDrag.type === 'node') {
-                this.pushUndoState();
-                this.savePreview();
-            }
-            this.activeDrag = null;
-        }
-
-        handleShortcuts(e) {
-            const isInputFocused = ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName);
-            if (isInputFocused) return;
-
-            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
-                e.preventDefault();
-                this.saveDesign(true);
-            }
-            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'e') {
-                e.preventDefault();
-                this.exportCodeBundle();
-            }
-            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-                e.preventDefault();
-                this.undo();
-            }
-            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
-                e.preventDefault();
-                this.redo();
-            }
-            if (e.key.toLowerCase() === 'd' && this.selectedNodeId) {
-                e.preventDefault();
-                const idx = this.design.layers.findIndex(l => l.id === this.selectedNodeId);
-                if (idx > -1) this.duplicateLayer(idx);
-            }
-            if(e.key === 'Delete' || e.key === 'Backspace') {
-                if(this.selectedNodeId && this.multiSelectIds.length > 0) {
-                    e.preventDefault();
-                    this.deleteSelectedLayers();
-                }
-            }
-        }
+    function updateTrainingUI(status) {
+        logToConsole(status.message);
+        document.getElementById('current-epoch').textContent = status.epoch;
+        document.getElementById('total-epochs').textContent = status.max_epochs;
+        document.getElementById('current-loss').textContent = status.loss.toFixed(4);
+        document.getElementById('current-accuracy').textContent = status.accuracy.toFixed(4);
         
-        handleFileUpload(e) {
-            const file = e.target.files[0];
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = () => {
-                document.querySelector('#data-preview').innerHTML = `<pre class="whitespace-pre-wrap max-h-60 overflow-auto">${reader.result.slice(0, 2000)}</pre>`;
-            };
-            reader.readAsText(file);
-        }
+        const progress = status.max_epochs > 0 ? (status.epoch / status.max_epochs) * 100 : 0;
+        document.getElementById('training-progress').value = progress;
 
-        // --- CORE LOGIC & ACTIONS ---
-
-        uuid() {
-            return crypto.randomUUID ? crypto.randomUUID() : 'id-' + Math.random().toString(36).slice(2, 9);
-        }
-
-        addBlock() {
-            this.pushUndoState();
-            const type = this.addType.value;
-            const params = {};
-            this.addParams.querySelectorAll('input').forEach(input => {
-                const id = input.id.replace('add-', '');
-                params[id] = input.type === 'checkbox' ? input.checked : this.parseValue(input.value);
-            });
-
-            const newNode = {
-                id: this.uuid(),
-                type,
-                params,
-                x: 40 + (this.design.layers.length % 8) * 220,
-                y: 40 + Math.floor(this.design.layers.length / 8) * 120,
-                meta: { created: Date.now() }
-            };
-
-            this.design.layers.push(newNode);
-            this.savePreview();
-            this.renderAll();
-        }
-
-        addMhaBlock() {
-            this.addType.value = 'TransformerBlock';
-            this.renderAddParams('TransformerBlock');
-            // Small timeout to ensure DOM is updated
-            setTimeout(() => {
-                const headsInput = document.querySelector('#add-heads');
-                if (headsInput) headsInput.value = 8;
-                const headDimInput = document.querySelector('#add-headdim');
-                if (headDimInput) headDimInput.value = 64;
-                this.addBlock();
-            }, 50);
-        }
-
-        loadPreset(name) {
-            this.pushUndoState();
-            this.design = { layers: [], connections: [] }; // Reset
-            const pushLayer = (type, params, x, y) => this.design.layers.push({ id: this.uuid(), type, params, x, y });
-
-            const presets = {
-                'bert': () => {
-                    pushLayer('Embedding', { vocab: 30000, dim: 768 }, 40, 40);
-                    pushLayer('PositionalEncoding', { maxlen: 512, dim: 768 }, 260, 40);
-                    for (let i = 0; i < 6; i++) pushLayer('TransformerBlock', { heads: 12, headdim: 64, ffdim: 3072, dropout: 0.1 }, 480 + 220 * i, 40);
-                    pushLayer('LayerNorm', { eps: 1e-6 }, 480 + 220 * 6, 40);
-                },
-                'gpt': () => {
-                    pushLayer('Embedding', { vocab: 30000, dim: 512 }, 40, 40);
-                    pushLayer('PositionalEncoding', { maxlen: 512, dim: 512 }, 260, 40);
-                    for (let i = 0; i < 8; i++) pushLayer('TransformerBlock', { heads: 8, headdim: 64, ffdim: 2048, dropout: 0.1, causal: true }, 480 + 220 * i, 40);
-                },
-                'resnet': () => {
-                    pushLayer('Conv2D', { filters: 64, kernel: 7, stride: 2 }, 40, 40);
-                    pushLayer('BatchNorm', {}, 260, 40);
-                    for (let i = 0; i < 4; i++) pushLayer('ResBlock', { filters: 64 }, 480 + 220 * i, 40);
-                    pushLayer('GlobalPool', {}, 480 + 220 * 4, 40);
-                    pushLayer('Dense', { units: 1000, activation: 'softmax' }, 480 + 220 * 5, 40);
-                },
-                'lstm': () => {
-                    pushLayer('Embedding', { vocab: 20000, dim: 256 }, 40, 40);
-                    pushLayer('LSTM', { units: 512, retseq: true }, 260, 40);
-                    pushLayer('LSTM', { units: 256, retseq: false }, 480, 40);
-                    pushLayer('Dense', { units: 10, activation: 'softmax' }, 700, 40);
-                },
-                'autoencoder': () => {
-                    pushLayer('Dense', { units: 512, activation: 'relu' }, 40, 40);
-                    pushLayer('Dense', { units: 128, activation: 'relu' }, 260, 40);
-                    pushLayer('Dense', { units: 32, activation: 'relu' }, 480, 40);
-                    pushLayer('Dense', { units: 128, activation: 'relu' }, 700, 40);
-                    pushLayer('Dense', { units: 512, activation: 'relu' }, 920, 40);
-                },
-                'gan': () => {
-                    pushLayer('Dense', { units: 256, activation: 'relu', role: 'generator' }, 40, 40);
-                    pushLayer('Dense', { units: 512, activation: 'relu', role: 'generator' }, 260, 40);
-                    pushLayer('Dense', { units: 512, activation: 'leaky_relu', role: 'discriminator' }, 40, 200);
-                    pushLayer('Dense', { units: 256, activation: 'leaky_relu', role: 'discriminator' }, 260, 200);
-                },
-                'gnn': () => {
-                    pushLayer('GraphConv', { outdim: 64 }, 40, 40);
-                    pushLayer('GraphConv', { outdim: 64 }, 260, 40);
-                    pushLayer('Dense', { units: 128, activation: 'relu' }, 480, 40);
-                },
-                'mlp': () => {
-                    pushLayer('Dense', { units: 512, activation: 'relu' }, 40, 40);
-                    pushLayer('Dense', { units: 256, activation: 'relu' }, 260, 40);
-                    pushLayer('Dense', { units: 128, activation: 'relu' }, 480, 40);
-                    pushLayer('Dense', { units: 10, activation: 'softmax' }, 700, 40);
-                }
-            };
-
-            if (presets[name]) presets[name]();
-            this.fitView();
-            this.renderAll();
-            this.savePreview();
-        }
-
-        zoom(factor) {
-            this.view.scale *= factor;
-            this.clampScale();
-            this.updateViewTransform();
-        }
-
-        clampScale() {
-            this.view.scale = Math.min(Math.max(this.view.scale, 0.2), 3);
-        }
-
-        fitView() {
-            this.view = { x: 0, y: 0, scale: 1 };
-            this.updateViewTransform();
-        }
-
-        screenToWorld(screenX, screenY) {
-            const rect = this.svg.getBoundingClientRect();
-            const x = (screenX - rect.left - this.view.x) / this.view.scale;
-            const y = (screenY - rect.top - this.view.y) / this.view.scale;
-            return { x, y };
-        }
-
-        startConnection(fromId) {
-            this.activeConnector = { from: fromId };
-            this.updateStatus(`Select target to connect from ${this.design.layers.find(l=>l.id===fromId).type}`);
-        }
-
-        finishConnection(toId) {
-            if (!this.activeConnector || this.activeConnector.from === toId) {
-                this.activeConnector = null;
-                this.updateStatus('Connection canceled');
-                return;
+        // Update chart
+        if (trainingChart && status.epoch > 0) {
+            if (!trainingChart.data.labels.includes(status.epoch)) {
+                trainingChart.data.labels.push(status.epoch);
+                trainingChart.data.datasets[0].data.push(status.loss);
+                trainingChart.data.datasets[1].data.push(status.accuracy);
+                trainingChart.update();
             }
-            this.pushUndoState();
-            this.design.connections.push({ id: this.uuid(), from: this.activeConnector.from, to: toId });
-            this.activeConnector = null;
-            this.savePreview();
-            this.markDirty();
-            this.updateStatus('Connected nodes');
-        }
-        
-        openLayerEditor(idx) {
-            const layer = this.design.layers[idx];
-            if (!layer) return;
-
-            const content = document.createElement('div');
-            
-            let paramsHTML = Object.entries(layer.params).map(([key, value]) => {
-                const isCheckbox = typeof value === 'boolean';
-                return `
-                    <div class="grid grid-cols-3 gap-2 items-center">
-                        <label class="input-label text-right">${key}</label>
-                        <input data-key="${key}" value="${value}" ${isCheckbox ? 'type="checkbox"' : 'type="text"'} ${isCheckbox && value ? 'checked' : ''} class="${isCheckbox ? 'input-checkbox' : 'input-base col-span-2'}">
-                    </div>`;
-            }).join('');
-
-            content.innerHTML = `
-                <div class="space-y-2">${paramsHTML}</div>
-                <div class="mt-4 border-t border-white/10 pt-4 space-y-2">
-                    <div class="grid grid-cols-3 gap-2 items-center">
-                        <input id="new-param-key" placeholder="new key" class="input-base">
-                        <input id="new-param-val" placeholder="new value" class="input-base col-span-2">
-                    </div>
-                    <button id="add-param-btn" class="btn-secondary-sm w-full">Add Parameter</button>
-                </div>`;
-            
-            const onSave = () => {
-                const newParams = {};
-                content.querySelectorAll('input[data-key]').forEach(input => {
-                    const key = input.dataset.key;
-                    const value = input.type === 'checkbox' ? input.checked : this.parseValue(input.value);
-                    newParams[key] = value;
-                });
-                layer.params = newParams;
-                this.pushUndoState();
-                this.savePreview();
-                this.renderAll();
-                return true; // Close modal
-            };
-            
-            this.showModal(`Edit ${layer.type}`, content, onSave);
-
-            // Add event listener for the "Add Parameter" button inside the modal
-            document.querySelector('#add-param-btn').addEventListener('click', () => {
-                const newKeyInput = document.querySelector('#new-param-key');
-                const newValInput = document.querySelector('#new-param-val');
-                if (newKeyInput.value) {
-                    layer.params[newKeyInput.value] = this.parseValue(newValInput.value);
-                    // Re-render the modal content to show the new parameter
-                    this.openLayerEditor(idx);
-                }
-            });
-        }
-        
-        duplicateLayer(idx) {
-            this.pushUndoState();
-            const original = this.design.layers[idx];
-            const copy = JSON.parse(JSON.stringify(original));
-            copy.id = this.uuid();
-            copy.x += 20;
-            copy.y += 20;
-            this.design.layers.splice(idx + 1, 0, copy);
-            this.renderAll();
-            this.savePreview();
-        }
-
-        deleteLayer(idx) {
-            this.showConfirm('Delete Layer?', 'Are you sure you want to delete this layer? This action cannot be undone.', () => {
-                this.pushUndoState();
-                const layerId = this.design.layers[idx].id;
-                this.design.layers.splice(idx, 1);
-                this.design.connections = this.design.connections.filter(c => c.from !== layerId && c.to !== layerId);
-                this.renderAll();
-                this.savePreview();
-            });
-        }
-
-        deleteSelectedLayers() {
-            if (this.multiSelectIds.length === 0) return;
-            
-            this.showConfirm('Delete Selected Layers?', `Are you sure you want to delete ${this.multiSelectIds.length} layers?`, () => {
-                this.pushUndoState();
-                this.design.layers = this.design.layers.filter(l => !this.multiSelectIds.includes(l.id));
-                this.design.connections = this.design.connections.filter(c => !this.multiSelectIds.includes(c.from) && !this.multiSelectIds.includes(c.to));
-                this.multiSelectIds = [];
-                this.selectedNodeId = null;
-                this.renderAll();
-                this.savePreview();
-            });
-        }
-
-        parseValue(v) {
-            if (v === 'true') return true;
-            if (v === 'false') return false;
-            if (v === '' || v === 'null') return null;
-            const num = parseFloat(v);
-            return !isNaN(num) && isFinite(v) ? num : v;
-        }
-
-        // --- STATE & DATA MANAGEMENT ---
-        
-        pushUndoState() {
-            this.undoStack.push(JSON.stringify(this.design));
-            if (this.undoStack.length > this.maxUndo) this.undoStack.shift();
-            this.redoStack = []; // Clear redo stack on new action
-        }
-
-        undo() {
-            if (this.undoStack.length === 0) return;
-            this.redoStack.push(JSON.stringify(this.design));
-            const prevState = this.undoStack.pop();
-            this.design = JSON.parse(prevState);
-            this.renderAll();
-        }
-
-        redo() {
-            if (this.redoStack.length === 0) return;
-            this.undoStack.push(JSON.stringify(this.design));
-            const nextState = this.redoStack.pop();
-            this.design = JSON.parse(nextState);
-            this.renderAll();
-        }
-
-        saveDesign(isQuickSave = false) {
-            localStorage.setItem('neuralforge.design', JSON.stringify(this.design));
-            if(isQuickSave) this.showAlert('Project Saved!', 'Your project has been saved to local storage.');
-        }
-
-        loadDesign(isQuickLoad = false) {
-            const savedData = localStorage.getItem('neuralforge.design');
-            if (!savedData) {
-                if(isQuickLoad) this.showAlert('Not Found', 'No saved project found in local storage.');
-                return;
-            }
-            this.pushUndoState();
-            this.design = JSON.parse(savedData);
-            this.renderAll();
-            if(isQuickLoad) this.showAlert('Project Loaded', 'Your project has been loaded from local storage.');
-        }
-
-        newDesign() {
-            this.showConfirm('New Project', 'Are you sure you want to clear the current design?', () => {
-                this.pushUndoState();
-                this.design = { layers: [], connections: [] };
-                this.renderAll();
-            });
-        }
-        
-        savePreview() {
-            localStorage.setItem('neuralforge.design.preview', JSON.stringify({ ts: Date.now(), layerCount: this.design.layers.length }));
-        }
-
-        loadSavedDesign() {
-            const savedData = localStorage.getItem('neuralforge.design');
-            if (savedData) {
-                try {
-                    this.design = JSON.parse(savedData);
-                } catch (e) {
-                    console.error("Failed to parse saved design:", e);
-                    this.design = { layers: [], connections: [] };
-                }
-            }
-        }
-        
-        // --- UTILITIES & SIMULATIONS ---
-        
-        updateStatus(message) {
-            this.statusEl.textContent = message;
-            this.statusBottom.textContent = message;
-        }
-        
-        startStatusSimulation() {
-            setInterval(() => {
-                const cpu = Math.round(Math.random() * 50 + 10);
-                const mem = Math.round(Math.random() * 50 + 20);
-                document.querySelector('#cpubar').style.width = cpu + '%';
-                document.querySelector('#membar').style.width = mem + '%';
-            }, 1600);
-        }
-        
-        downloadText(filename, text) {
-            const element = document.createElement('a');
-            element.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(text));
-            element.setAttribute('download', filename);
-            element.style.display = 'none';
-            document.body.appendChild(element);
-            element.click();
-            document.body.removeChild(element);
-        }
-
-        downloadDataset(name) {
-            const previewEl = document.querySelector('#data-preview');
-            previewEl.textContent = `Downloading ${name} (simulated)...`;
-            setTimeout(() => {
-                previewEl.innerHTML = `<strong>${name}</strong> sample data loaded (simulated).<br>Ready for training.`;
-                this.updateStatus(`Dataset ${name} ready`);
-            }, 800);
-        }
-
-        // --- MODAL SYSTEM ---
-        showModal(title, contentElement, onSaveCallback) {
-            this.modalContainer.innerHTML = ''; // Clear previous modal
-            this.modalContainer.classList.remove('hidden');
-
-            const modalBox = document.createElement('div');
-            modalBox.className = 'bg-[var(--panel)] border border-white/10 rounded-lg shadow-lg w-full max-w-lg p-6 animate-fade-in';
-            
-            const titleEl = document.createElement('h3');
-            titleEl.className = 'text-xl font-semibold mb-4';
-            titleEl.textContent = title;
-            modalBox.appendChild(titleEl);
-
-            modalBox.appendChild(contentElement);
-
-            const actions = document.createElement('div');
-            actions.className = 'flex justify-end gap-2 mt-6';
-
-            const closeBtn = document.createElement('button');
-            closeBtn.className = 'btn-secondary-sm';
-            closeBtn.textContent = 'Close';
-            closeBtn.onclick = () => this.modalContainer.classList.add('hidden');
-            actions.appendChild(closeBtn);
-
-            if (onSaveCallback) {
-                const saveBtn = document.createElement('button');
-                saveBtn.className = 'btn-accent-sm';
-                saveBtn.textContent = 'Save';
-                saveBtn.onclick = () => {
-                    if (onSaveCallback()) {
-                        this.modalContainer.classList.add('hidden');
-                    }
-                };
-                actions.appendChild(saveBtn);
-            }
-            modalBox.appendChild(actions);
-
-            this.modalContainer.appendChild(modalBox);
-        }
-
-        showAlert(title, message) {
-            const content = document.createElement('p');
-            content.textContent = message;
-            this.showModal(title, content);
-        }
-        
-        showConfirm(title, message, onConfirm) {
-            const content = document.createElement('p');
-            content.textContent = message;
-            
-            const onSave = () => {
-                onConfirm();
-                return true; // Close modal
-            };
-
-            this.showModal(title, content, onSave);
-            // Rename 'Save' to 'Confirm' for clarity
-            this.modalContainer.querySelector('.btn-accent-sm').textContent = 'Confirm';
-        }
-        
-        // --- CODE GENERATION ---
-        
-        exportCode(type) {
-            let code, filename;
-            switch(type) {
-                case 'pytorch':
-                    code = this.generatePyTorch();
-                    filename = 'model_pytorch.py';
-                    break;
-                case 'tensorflow':
-                    code = this.generateTensorFlow();
-                    filename = 'model_tf.py';
-                    break;
-                case 'rust':
-                    code = this.generateRust();
-                    filename = 'model.rs';
-                    break;
-            }
-            this.downloadText(filename, code);
-        }
-
-        exportCodeBundle() {
-            const bundle = {
-                pytorch: this.generatePyTorch(),
-                tensorflow: this.generateTensorFlow(),
-                rust: this.generateRust()
-            };
-            this.downloadText('design_code_bundle.json', JSON.stringify(bundle, null, 2));
-        }
-
-        generatePyTorch() { /* ... existing codegen logic ... */ return "PyTorch code generation placeholder."; }
-        generateTensorFlow() { /* ... existing codegen logic ... */ return "TensorFlow code generation placeholder."; }
-        generateRust() { /* ... existing codegen logic ... */ return "Rust code generation placeholder."; }
-
-        // --- TRAINING & METRICS ---
-
-        startLocalTraining() {
-            if(this.design.layers.length === 0) {
-                this.showAlert('Empty Design', 'Please add layers to your design before training.');
-                return;
-            }
-            this.logToConsole('Starting local simulated training...');
-            this.simulateTraining();
-        }
-
-        logToConsole(message) {
-            const p = document.createElement('div');
-            p.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-            this.consoleEl.prepend(p);
-        }
-
-        simulateTraining() {
-            let step = 0;
-            const totalSteps = 60;
-            this.lossData = [];
-            this.accData = [];
-
-            const intervalId = setInterval(() => {
-                step++;
-                const loss = (Math.exp(-step / 18) + Math.random() * 0.02).toFixed(4);
-                const acc = (1 - Math.exp(-step / 36) + Math.random() * 0.02).toFixed(4);
-                this.logToConsole(`Step ${step}/${totalSteps} — loss: ${loss}, acc: ${acc}`);
-                this.updateCharts(step, parseFloat(loss), parseFloat(acc));
-
-                if (step >= totalSteps) {
-                    clearInterval(intervalId);
-                    this.logToConsole('Training finished (simulated).');
-                    this.updateStatus('Training Complete');
-                }
-            }, 300);
-        }
-
-        updateCharts(step, loss, acc) {
-            this.lossData.push({ x: step, y: loss });
-            this.accData.push({ x: step, y: acc });
-            this.drawChart(this.lossCtx, this.lossData, 'Loss', '#f97316');
-            this.drawChart(this.accCtx, this.accData, 'Accuracy', '#34d399');
-        }
-
-        drawChart(ctx, data, label, color) {
-            const w = ctx.canvas.width, h = ctx.canvas.height;
-            ctx.clearRect(0, 0, w, h);
-            ctx.fillStyle = '#021022';
-            ctx.fillRect(0, 0, w, h);
-            if (data.length === 0) return;
-
-            const maxY = Math.max(...data.map(d => d.y)) * 1.1;
-            const minY = 0; // Start y-axis at 0
-            ctx.strokeStyle = color;
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            data.forEach((point, i) => {
-                const x = 10 + (i / (data.length - 1 || 1)) * (w - 20);
-                const y = (h - 10) - ((point.y - minY) / (maxY - minY || 1)) * (h - 20);
-                if (i === 0) ctx.moveTo(x, y);
-                else ctx.lineTo(x, y);
-            });
-            ctx.stroke();
-            ctx.fillStyle = '#9fb2c8';
-            ctx.font = '12px Inter';
-            ctx.fillText(label, 10, 14);
-        }
-        
-        // --- VERIFICATION ---
-        
-        async runVerification() {
-            this.verifyOutputEl.innerHTML = '';
-            const results = [];
-            const test = (name, fn) => {
-                try {
-                    const result = fn();
-                    if(result) results.push([name, 'PASS', 'var(--success)']);
-                    else results.push([name, 'FAIL', '#f97316']);
-                } catch (e) {
-                    results.push([name, `FAIL: ${e.message}`, '#f97316']);
-                }
-            };
-            
-            test('Render Preset', () => { this.loadPreset('bert'); this.renderAll(); return this.design.layers.length > 0; });
-            test('PyTorch Codegen', () => this.generatePyTorch().length > 50);
-            test('TensorFlow Codegen', () => this.generateTensorFlow().length > 50);
-            test('Rust Codegen', () => this.generateRust().length > 50);
-            test('SVG Render', () => { this.renderSVG(); return this.svg.children.length > 0; });
-            
-            results.forEach(([name, status, color]) => {
-                const row = document.createElement('div');
-                row.className = 'flex justify-between gap-4';
-                row.innerHTML = `<div>${name}</div><div style="color: ${color}">${status}</div>`;
-                this.verifyOutputEl.appendChild(row);
-            });
-
-            this.updateStatus('Verification complete');
         }
     }
 
-    // Add some utility classes to a style tag for Tailwind-like behavior
-    const style = document.createElement('style');
-    style.textContent = `
-        .card-base { background: linear-gradient(180deg, rgba(255,255,255,0.02), transparent); border: 1px solid rgba(255,255,255,0.03); padding: 1.25rem; border-radius: 0.75rem; margin-bottom: 1rem; }
-        .card-nested { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); padding: 0.75rem; border-radius: 0.5rem; }
-        .btn-accent { padding: 0.5rem 0.75rem; background-color: var(--accent); border-radius: 0.375rem; color: white; font-weight: 500; transition: background-color 0.2s; }
-        .btn-accent:hover { background-color: #6d28d9; }
-        .btn-accent-sm { padding: 0.25rem 0.75rem; background-color: var(--accent); border-radius: 0.375rem; color: white; font-size: 0.875rem; transition: background-color 0.2s; }
-        .btn-accent-sm:hover { background-color: #6d28d9; }
-        .btn-secondary-sm { padding: 0.25rem 0.75rem; border: 1px solid rgba(255,255,255,0.1); border-radius: 0.375rem; font-size: 0.875rem; transition: background-color 0.2s; }
-        .btn-secondary-sm:hover { background-color: rgba(255,255,255,0.05); }
-        .btn-secondary-xs { padding: 0.125rem 0.5rem; border: 1px solid rgba(255,255,255,0.1); border-radius: 0.25rem; font-size: 0.75rem; transition: background-color 0.2s; }
-        .btn-secondary-xs:hover { background-color: rgba(255,255,255,0.05); }
-        .input-base { width: 100%; margin-top: 0.5rem; background-color: #071827; border: 1px solid rgba(255,255,255,0.1); border-radius: 0.375rem; padding: 0.5rem 0.75rem; }
-        .input-label { color: var(--muted); font-size: 0.875rem; display: block; }
-        .input-checkbox { width: 1rem; height: 1rem; background-color: #071827; border: 1px solid rgba(255,255,255,0.1); border-radius: 0.25rem; }
-        @keyframes fade-in { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
-        .animate-fade-in { animation: fade-in 0.2s ease-out forwards; }
-    `;
-    document.head.appendChild(style);
-  </script>
+    function initializeChart() {
+        const ctx = document.getElementById('training-chart').getContext('2d');
+        if(trainingChart) {
+            trainingChart.destroy();
+        }
+        trainingChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Loss',
+                    data: [],
+                    borderColor: 'rgba(247, 118, 142, 1)', // error color
+                    yAxisID: 'yLoss',
+                }, {
+                    label: 'Accuracy',
+                    data: [],
+                    borderColor: 'rgba(158, 206, 106, 1)', // success color
+                    yAxisID: 'yAccuracy',
+                }]
+            },
+            options: {
+                scales: {
+                    yLoss: { type: 'linear', display: true, position: 'left', title: { display: true, text: 'Loss' } },
+                    yAccuracy: { type: 'linear', display: true, position: 'right', title: { display: true, text: 'Accuracy' }, min: 0, max: 1 }
+                }
+            }
+        });
+    }
+
+    // --- Inspect Logic ---
+    function updateInspectLayerSelect() {
+        inspectLayerSelect.innerHTML = '';
+        modelArchitecture.forEach((layer, index) => {
+            const option = document.createElement('option');
+            option.value = layer.id;
+            option.textContent = `${index}: ${layer.type}`;
+            inspectLayerSelect.appendChild(option);
+        });
+        renderInspectGrid();
+    }
+
+    function renderInspectGrid() {
+        const grid = document.getElementById('inspect-grid');
+        grid.innerHTML = '';
+        const numCells = Math.floor(Math.random() * 50) + 10; // Mock data
+        for (let i = 0; i < numCells; i++) {
+            const cell = document.createElement('div');
+            cell.className = 'grid-cell';
+            const value = (Math.random() * 2 - 1).toFixed(2);
+            cell.innerHTML = `<div class="grid-cell-content" style="background-color: rgba(122, 162, 247, ${Math.abs(parseFloat(value))})">${value}</div>`;
+            grid.appendChild(cell);
+        }
+    }
+    
+    inspectLayerSelect.addEventListener('change', renderInspectGrid);
+    document.getElementById('inspect-param-select').addEventListener('change', renderInspectGrid);
+
+
+    // --- Utility Functions ---
+    function logToConsole(message, type = 'info') {
+        const p = document.createElement('p');
+        const timestamp = new Date().toLocaleTimeString();
+        p.textContent = `[${timestamp}] ${message}`;
+        if (type === 'error') {
+            p.style.color = 'var(--error-color)';
+        }
+        trainingLog.appendChild(p);
+        trainingLog.scrollTop = trainingLog.scrollHeight;
+    }
+
+    // --- Initial Render ---
+    renderModelCanvas();
+    renderPropertiesPanel();
+    updateInspectLayerSelect();
+    
+</script>
+
 </body>
 </html>

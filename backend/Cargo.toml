@@ -5,12 +5,14 @@ edition = "2021"
 
 [dependencies]
 actix-web = "4"
+actix-cors = "0.7"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-sysinfo = "0.30.11"
-actix-cors = "0.7.0"
-rand = "0.8.5"
-actix-multipart = "0.4"
+sysinfo = "0.30"
 futures-util = "0.3"
 
-reqwest = "0.11"
+# --- AI Core Dependencies ---
+ndarray = { version = "0.15", features = ["serde"] }
+ndarray-rand = "0.14"
+bincode = "1.3"
+rand = "0.8"
