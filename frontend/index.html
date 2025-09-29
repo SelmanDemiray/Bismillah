@@ -3,710 +3,712 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NeuroForge Studio - Rust AI Backend</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <title>AI Command Center // Backend v5.0</title>
     <style>
         :root {
-            --bg-color: #1a1b26;
-            --sidebar-bg: #24283b;
-            --canvas-bg: #1e1f29;
-            --primary-accent: #7aa2f7;
-            --secondary-accent: #bb9af7;
-            --text-color: #c0caf5;
-            --text-dim: #a9b1d6;
-            --border-color: #414868;
-            --success-color: #9ece6a;
-            --error-color: #f7768e;
-            --font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+            --primary-glow: #00aaff;
+            --secondary-glow: #ff00ff;
+            --success-glow: #00ffaa;
+            --error-glow: #ff4400;
+
+            --bg-dark: #0a0a10;
+            --bg-grid: #1a1a2a;
+            --bg-panel: rgba(20, 20, 35, 0.6);
+            --text-light: #e0e0ff;
+            --text-muted: #8080a0;
+            --border-color: rgba(100, 100, 150, 0.3);
+            --border-hover: var(--primary-glow);
+        }
+
+        @import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&family=Exo+2:wght@400;600;800&display=swap');
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
         }
 
         body {
-            font-family: var(--font-family);
-            background-color: var(--bg-color);
-            color: var(--text-color);
-            margin: 0;
-            display: flex;
-            height: 100vh;
-            overflow: hidden;
+            font-family: 'Exo 2', sans-serif;
+            background-color: var(--bg-dark);
+            background-image:
+                linear-gradient(var(--border-color) 1px, transparent 1px),
+                linear-gradient(90deg, var(--border-color) 1px, transparent 1px);
+            background-size: 20px 20px;
+            color: var(--text-light);
+            min-height: 100vh;
         }
 
-        /* --- Main Layout --- */
-        #app-container {
-            display: flex;
-            width: 100%;
-            height: 100%;
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 2rem;
         }
 
-        #layer-palette {
-            width: 250px;
-            background-color: var(--sidebar-bg);
-            padding: 20px;
-            border-right: 1px solid var(--border-color);
-            overflow-y: auto;
+        .header {
+            text-align: center;
+            margin-bottom: 2rem;
         }
 
-        #main-workspace {
-            flex-grow: 1;
+        .header h1 {
+            font-size: 3rem;
+            font-weight: 800;
+            background: linear-gradient(90deg, var(--primary-glow), var(--secondary-glow));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: 2px;
+            margin-bottom: 0.5rem;
+        }
+
+        .header p {
+            color: var(--text-muted);
+            font-size: 1.1rem;
+        }
+
+        .main-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(600px, 1fr));
+            gap: 2rem;
+        }
+
+        .section {
+            background: var(--bg-panel);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 0 30px rgba(0,0,0,0.3);
+            padding: 1.5rem;
+            transition: all 0.3s ease;
             display: flex;
             flex-direction: column;
-            padding: 20px;
         }
-
-        #properties-panel {
-            width: 300px;
-            background-color: var(--sidebar-bg);
-            padding: 20px;
-            border-left: 1px solid var(--border-color);
-            overflow-y: auto;
-        }
-
-        h1, h2, h3 {
-            color: var(--primary-accent);
-            border-bottom: 1px solid var(--border-color);
-            padding-bottom: 10px;
-            margin-top: 0;
-        }
-
-        h3 {
-            color: var(--secondary-accent);
-            font-size: 1.1em;
-        }
-
-        /* --- Layer Palette --- */
-        .layer-category h3 {
-            margin-bottom: 10px;
-        }
-        .draggable-layer {
-            background-color: var(--canvas-bg);
-            border: 1px solid var(--border-color);
-            padding: 12px;
-            margin-bottom: 10px;
-            border-radius: 5px;
-            cursor: grab;
-            transition: all 0.2s ease;
-            text-align: center;
-            font-weight: 500;
-        }
-        .draggable-layer:hover {
-            border-color: var(--primary-accent);
-            background-color: #2a2f4a;
-        }
-
-        /* --- Main Workspace Tabs --- */
-        .tab-nav {
-            display: flex;
-            border-bottom: 1px solid var(--border-color);
-            margin-bottom: 20px;
-        }
-        .tab-button {
-            padding: 10px 20px;
-            cursor: pointer;
-            border: none;
-            background: none;
-            color: var(--text-dim);
-            font-size: 1em;
-            border-bottom: 3px solid transparent;
-        }
-        .tab-button.active {
-            color: var(--primary-accent);
-            border-bottom: 3px solid var(--primary-accent);
-        }
-        .tab-content { display: none; }
-        .tab-content.active { display: block; }
         
-        /* --- Design Canvas --- */
-        #design-canvas {
-            background-color: var(--canvas-bg);
-            border: 2px dashed var(--border-color);
-            border-radius: 10px;
-            min-height: 400px;
-            padding: 20px;
-            overflow-y: auto;
+        .section:hover {
+            box-shadow: 0 0 15px var(--border-color);
+        }
+
+        .section h2 {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+            color: var(--text-light);
+            text-shadow: 0 0 5px var(--primary-glow);
+        }
+
+        /* --- Visual Graph Designer --- */
+        #graph-designer { grid-column: 1 / -1; }
+        .designer-layout {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 1.5rem;
             flex-grow: 1;
         }
-        .canvas-layer {
-            background-color: var(--sidebar-bg);
-            border: 1px solid var(--border-color);
-            padding: 15px;
-            margin-bottom: 10px;
-            border-radius: 5px;
+        .designer-controls {
             display: flex;
-            justify-content: space-between;
-            align-items: center;
-            cursor: pointer;
+            flex-direction: column;
+            gap: 1rem;
         }
-        .canvas-layer.selected {
-            border-color: var(--secondary-accent);
-            box-shadow: 0 0 10px rgba(187, 154, 247, 0.3);
-        }
-        .canvas-layer .layer-name { font-weight: bold; }
-        .canvas-layer .layer-details { color: var(--text-dim); font-size: 0.9em; }
-
-        /* --- Properties Panel & Form Elements --- */
-        .form-group {
-            margin-bottom: 15px;
-        }
-        .form-group label {
-            display: block;
-            margin-bottom: 5px;
-            color: var(--text-dim);
-        }
-        .form-group input, .form-group select {
-            width: 100%;
-            padding: 8px;
-            background-color: var(--canvas-bg);
+        .graph-visual-container {
+            background: rgba(0,0,0,0.3);
+            border-radius: 8px;
             border: 1px solid var(--border-color);
-            border-radius: 4px;
-            color: var(--text-color);
-            box-sizing: border-box;
-        }
-        
-        /* --- Training Tab --- */
-        #training-controls, #training-status {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-        }
-        .button {
-            padding: 10px 15px;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 1em;
-            font-weight: bold;
-            transition: all 0.2s ease;
-        }
-        .btn-primary {
-            background-color: var(--primary-accent);
-            color: var(--bg-color);
-        }
-        .btn-primary:hover {
-            opacity: 0.9;
-        }
-        .btn-danger {
-            background-color: var(--error-color);
-            color: var(--bg-color);
-        }
-        #training-log {
-            margin-top: 20px;
-            background: var(--canvas-bg);
-            border-radius: 5px;
-            padding: 15px;
-            height: 150px;
-            overflow-y: scroll;
-            font-family: 'Courier New', Courier, monospace;
-            font-size: 0.9em;
-            border: 1px solid var(--border-color);
-        }
-        #training-progress {
-            width: 100%;
-            appearance: none;
-            height: 10px;
-            border-radius: 5px;
-            background: var(--border-color);
-        }
-        #training-progress::-webkit-progress-bar {
-            background: var(--border-color);
-            border-radius: 5px;
-        }
-        #training-progress::-webkit-progress-value {
-            background: var(--success-color);
-            border-radius: 5px;
-        }
-
-        /* --- Inspect Tab --- */
-        #inspect-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(20px, 1fr));
-            gap: 2px;
-            background: var(--canvas-bg);
-            padding: 5px;
-            border: 1px solid var(--border-color);
-            max-height: 400px;
-            overflow: auto;
-        }
-        .grid-cell {
-            width: 100%;
-            padding-bottom: 100%; /* Aspect ratio hack */
-            position: relative;
-        }
-        .grid-cell-content {
-            position: absolute;
-            top: 0; left: 0; right: 0; bottom: 0;
+            padding: 1rem;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 0.7em;
-            background-color: #333;
+            min-height: 300px;
+            flex-grow: 1;
         }
+        #graph-visual {
+            display: flex;
+            gap: 2rem;
+            align-items: center;
+        }
+        .graph-node {
+            background: var(--bg-grid);
+            border: 1px solid var(--primary-glow);
+            border-radius: 8px;
+            padding: 1rem 1.5rem;
+            text-align: center;
+            box-shadow: 0 0 10px var(--primary-glow);
+            position: relative;
+        }
+        .node-connector {
+            width: 2rem;
+            height: 2px;
+            background: linear-gradient(90deg, var(--primary-glow), var(--secondary-glow));
+        }
+        
+        /* --- Code Editor --- */
+        .code-editor-wrapper {
+            background: var(--bg-dark);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 0.5rem;
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
+        }
+        textarea#model-config {
+            flex-grow: 1;
+            background: transparent;
+            border: none;
+            color: var(--text-light);
+            font-family: 'Roboto Mono', monospace;
+            font-size: 14px;
+            line-height: 1.6;
+            resize: none;
+            outline: none;
+        }
+        
+        /* --- Training Center --- */
+        .slider-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        .slider-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.9rem;
+            color: var(--text-muted);
+        }
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 4px;
+            background: var(--bg-dark);
+            outline: none;
+            border-radius: 2px;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            background: var(--primary-glow);
+            cursor: pointer;
+            border-radius: 50%;
+            box-shadow: 0 0 10px var(--primary-glow);
+        }
+        .training-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        /* --- System Monitor --- */
+        .monitor-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        .metric-card {
+            background: rgba(0,0,0,0.2);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1rem;
+            text-align: center;
+        }
+        .metric-value { font-size: 2rem; font-weight: 700; color: var(--success-glow); }
+        .metric-label { font-size: 0.9rem; color: var(--text-muted); margin-top: 0.25rem; }
+        
+        .logs {
+            background: rgba(0,0,0,0.4);
+            border-radius: 8px;
+            padding: 1rem;
+            font-family: 'Roboto Mono', monospace;
+            font-size: 12px;
+            height: 200px;
+            overflow-y: auto;
+            border: 1px solid var(--border-color);
+        }
+        .log-entry { opacity: 0; animation: fadeIn 0.5s forwards; }
+        @keyframes fadeIn { to { opacity: 1; } }
+
+        /* --- General UI Elements --- */
+        button, .template-btn {
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            font-family: 'Exo 2', sans-serif;
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: 1px solid var(--primary-glow);
+            background: transparent;
+            color: var(--primary-glow);
+            text-shadow: 0 0 5px var(--primary-glow);
+        }
+        button:hover, .template-btn:hover {
+            background: var(--primary-glow);
+            color: var(--bg-dark);
+            box-shadow: 0 0 15px var(--primary-glow);
+        }
+        button:disabled {
+            border-color: var(--text-muted);
+            color: var(--text-muted);
+            background: transparent;
+            cursor: not-allowed;
+            text-shadow: none;
+            box-shadow: none;
+        }
+        .template-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.5rem;
+        }
+        .form-group { margin-bottom: 1rem; }
+        label { display: block; margin-bottom: 0.5rem; color: var(--text-muted); }
+        input[type="text"], select {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background: var(--bg-dark);
+            color: var(--text-light);
+            font-size: 1rem;
+        }
+        input:focus, select:focus {
+            outline: none;
+            border-color: var(--border-hover);
+        }
+
+        .status { padding: 10px; border-radius: 8px; margin-top: 10px; font-weight: 500; text-align: center; }
+        .status.success { background: rgba(0, 255, 170, 0.1); border: 1px solid var(--success-glow); color: var(--success-glow); }
+        .status.error { background: rgba(255, 68, 0, 0.1); border: 1px solid var(--error-glow); color: var(--error-glow); }
+        .status.info { background: rgba(0, 170, 255, 0.1); border: 1px solid var(--primary-glow); color: var(--primary-glow); }
+        
+        .progress-bar { width: 100%; height: 8px; background: var(--bg-dark); border-radius: 4px; overflow: hidden; margin-top: 1rem; }
+        .progress-fill { height: 100%; background: linear-gradient(90deg, var(--primary-glow), var(--success-glow)); width: 0%; transition: width 0.3s ease; }
 
     </style>
 </head>
 <body>
+    <div class="container">
+        <header class="header">
+            <h1>🚀 NEURAL NETWORK COMMAND CENTER</h1>
+            <p>Enterprise-grade AI Backend with Dynamic Computational Graph & Autograd Engine</p>
+        </header>
 
-    <div id="app-container">
-        <aside id="layer-palette">
-            <h1>NeuroForge</h1>
+        <div class="main-grid">
+            <section class="section" id="graph-designer">
+                <h2>
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10V4a2 2 0 0 1 2-2h4M21 14v6a2 2 0 0 1-2 2h-4M3 14l4-4 4 4M21 10l-4 4-4-4"/></svg>
+                    Architecture Blueprint
+                </h2>
+                <div class="designer-layout">
+                    <div class="designer-controls">
+                        <div class="form-group">
+                            <label>Load Template</label>
+                            <div class="template-buttons">
+                                <button class="template-btn" onclick="loadTemplate('mlp')">MLP</button>
+                                <button class="template-btn" onclick="loadTemplate('transformer')">Transformer</button>
+                                <button class="template-btn" onclick="loadTemplate('cnn')">CNN</button>
+                                <button class="template-btn" onclick="loadTemplate('autoencoder')">Autoencoder</button>
+                            </div>
+                        </div>
+                         <div class="form-group">
+                            <label>Input Features</label>
+                            <input type="text" id="input-dims" value="784" placeholder="e.g., 784">
+                        </div>
+                        <div class="form-group">
+                            <label>Output Classes</label>
+                            <input type="text" id="output-dims" value="10" placeholder="e.g., 10">
+                        </div>
+                        <button onclick="generateArchitecture()">Generate & Visualize</button>
+                    </div>
+                    <div class="graph-visual-container">
+                        <div id="graph-visual">
+                             </div>
+                    </div>
+                </div>
+            </section>
             
-            <div class="layer-category">
-                <h3>Core Layers</h3>
-                <div class="draggable-layer" draggable="true" data-layer-type="Dense">Dense</div>
-                <div class="draggable-layer" draggable="true" data-layer-type="Activation">Activation</div>
-                <div class="draggable-layer" draggable="true" data-layer-type="Flatten">Flatten</div>
-                <div class="draggable-layer" draggable="true" data-layer-type="Dropout">Dropout</div>
-            </div>
-
-            <div class="layer-category">
-                <h3>Convolutional</h3>
-                <div class="draggable-layer" draggable="true" data-layer-type="Conv2D">Conv2D</div>
-                <div class="draggable-layer" draggable="true" data-layer-type="MaxPooling2D">MaxPooling2D</div>
-                <div class="draggable-layer" draggable="true" data-layer-type="AveragePooling2D">AveragePooling2D</div>
-            </div>
-            
-            <div class="layer-category">
-                <h3>Recurrent</h3>
-                <div class="draggable-layer" draggable="true" data-layer-type="LSTM">LSTM</div>
-                <div class="draggable-layer" draggable="true" data-layer-type="GRU">GRU</div>
-                <div class="draggable-layer" draggable="true" data-layer-type="Embedding">Embedding</div>
-            </div>
-
-            <div class="layer-category">
-                <h3>Transformer Blocks</h3>
-                <div class="draggable-layer" draggable="true" data-layer-type="MultiHeadAttention">Multi-Head Attention</div>
-                <div class="draggable-layer" draggable="true" data-layer-type="LayerNorm">Layer Normalization</div>
-                <div class="draggable-layer" draggable="true" data-layer-type="PositionalEncoding">Positional Encoding</div>
-                <div class="draggable-layer" draggable="true" data-layer-type="EncoderBlock">Encoder Block</div>
-                <div class="draggable-layer" draggable="true" data-layer-type="DecoderBlock">Decoder Block</div>
-            </div>
-        </aside>
-
-        <main id="main-workspace">
-            <nav class="tab-nav">
-                <button class="tab-button active" data-tab="design">Design</button>
-                <button class="tab-button" data-tab="train">Train</button>
-                <button class="tab-button" data-tab="inspect">Inspect</button>
-            </nav>
-
-            <div id="design-tab" class="tab-content active">
-                <h2>Model Architecture</h2>
-                <div id="design-canvas">
-                    </div>
-            </div>
-
-            <div id="train-tab" class="tab-content">
-                <h2>Training Dashboard</h2>
-                <div id="training-controls">
-                    <div class="form-group">
-                        <label for="model-name">Model Name</label>
-                        <input type="text" id="model-name" value="custom_model">
-                    </div>
-                    <div class="form-group">
-                        <label for="learning-rate">Learning Rate</label>
-                        <input type="number" id="learning-rate" value="0.001" step="0.0001">
-                    </div>
-                    <div class="form-group">
-                        <label for="epochs">Epochs</label>
-                        <input type="number" id="epochs" value="10">
-                    </div>
-                    <div class="form-group">
-                        <label for="batch-size">Batch Size</label>
-                        <input type="number" id="batch-size" value="32">
-                    </div>
+            <section class="section">
+                 <h2>
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+                    Model Syntax (JSON)
+                </h2>
+                <div class="code-editor-wrapper">
+                    <textarea id="model-config" placeholder="JSON will be generated here..."></textarea>
                 </div>
-                <div>
-                    <button id="start-train-btn" class="button btn-primary">Start Training</button>
-                    <button id="stop-train-btn" class="button btn-danger">Stop Training</button>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem;">
+                    <button onclick="createModel()">🚀 Create Model</button>
+                    <button onclick="validateSyntax()">Validate Syntax</button>
                 </div>
-                <div id="training-status">
-                    <div>
-                        <h3>Progress</h3>
-                        <p>Epoch: <span id="current-epoch">0</span>/<span id="total-epochs">10</span></p>
-                        <progress id="training-progress" value="0" max="100"></progress>
-                        <p>Loss: <span id="current-loss">N/A</span> | Accuracy: <span id="current-accuracy">N/A</span></p>
-                    </div>
-                    <div>
-                        <h3>Training Chart</h3>
-                        <canvas id="training-chart"></canvas>
-                    </div>
-                </div>
-                <h3>Training Log</h3>
-                <div id="training-log"></div>
-            </div>
+                 <div id="syntax-status"></div>
+            </section>
 
-            <div id="inspect-tab" class="tab-content">
-                <h2>Inspect Model Parameters</h2>
+            <section class="section">
+                <h2>
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+                    Training Control Deck
+                </h2>
                 <div class="form-group">
-                    <label for="inspect-layer-select">Select Layer</label>
-                    <select id="inspect-layer-select">
-                        </select>
+                    <label>Select Model to Train</label>
+                    <select id="selected-model"><option value="">No models available</option></select>
                 </div>
-                <div class="form-group">
-                    <label for="inspect-param-select">Select Parameter</label>
-                    <select id="inspect-param-select">
-                        <option value="weights">Weights</option>
-                        <option value="biases">Biases</option>
-                    </select>
+                <div class="slider-group">
+                    <div class="slider-label"><span>Learning Rate</span><span id="lr-value">0.01</span></div>
+                    <input type="range" id="learning-rate" min="0.0001" max="0.1" step="0.0001" value="0.01" oninput="updateSliderValue('learning-rate', 'lr-value')">
                 </div>
-                <h3>Matrix/Vector Visualization (Conceptual)</h3>
-                <p style="color: var(--text-dim); font-style: italic;">This is a visual mock-up. A real implementation would fetch and render the actual tensor data from the backend.</p>
-                <div id="inspect-grid">
+                 <div class="slider-group">
+                    <div class="slider-label"><span>Epochs</span><span id="epochs-value">100</span></div>
+                    <input type="range" id="epochs" min="1" max="500" step="1" value="100" oninput="updateSliderValue('epochs', 'epochs-value')">
+                </div>
+                 <div class="slider-group">
+                    <div class="slider-label"><span>Batch Size</span><span id="batch-size-value">32</span></div>
+                    <input type="range" id="batch-size" min="1" max="128" step="1" value="32" oninput="updateSliderValue('batch-size', 'batch-size-value')">
+                </div>
+                <div class="training-buttons">
+                    <button onclick="startTraining()" id="train-btn">▶ Start Training</button>
+                    <button onclick="stopTraining()" id="stop-btn" disabled>■ Stop Training</button>
+                </div>
+                <div id="training-progress" style="display: none;">
+                    <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+                </div>
+                <div id="training-status"></div>
+            </section>
+
+            <section class="section">
+                <h2>
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+                    System Monitor
+                </h2>
+                <div class="monitor-grid">
+                    <div class="metric-card">
+                        <div class="metric-value" id="current-loss">0.000</div>
+                        <div class="metric-label">Current Loss</div>
                     </div>
-            </div>
-        </main>
-
-        <aside id="properties-panel">
-            <h2>Properties</h2>
-            <div id="properties-content">
-                <p>Select a layer on the canvas to edit its properties.</p>
-            </div>
-        </aside>
-
+                    <div class="metric-card">
+                        <div class="metric-value" id="training-epoch">0 / 0</div>
+                        <div class="metric-label">Epoch</div>
+                    </div>
+                </div>
+                <canvas id="loss-graph" width="400" height="150"></canvas>
+                <div class="logs" id="system-logs"></div>
+            </section>
+        </div>
     </div>
 
-<script>
-    // --- Application State ---
-    let modelArchitecture = [];
-    let selectedLayerId = null;
-    let trainingStatusInterval = null;
-    let trainingChart = null;
+    <script>
+        // --- STATE & CONFIG ---
+        const state = { models: [], selectedModel: null, isTraining: false, lossHistory: [] };
+        const API_BASE = `${window.location.protocol}//${window.location.hostname}:8080`;
+        let lossChart;
 
-    // --- DOM Elements ---
-    const layerPalette = document.getElementById('layer-palette');
-    const designCanvas = document.getElementById('design-canvas');
-    const propertiesContent = document.getElementById('properties-content');
-    const startTrainBtn = document.getElementById('start-train-btn');
-    const trainingLog = document.getElementById('training-log');
-    const inspectLayerSelect = document.getElementById('inspect-layer-select');
+        // --- LIFECYCLE ---
+        window.addEventListener('DOMContentLoaded', initializeApp);
 
-    // --- Layer Definitions ---
-    const layerDefs = {
-        'Dense': [
-            { name: 'units', type: 'number', default: 128 },
-            { name: 'activation', type: 'select', options: ['ReLU', 'Sigmoid', 'Tanh', 'Linear', 'GELU'], default: 'ReLU' }
-        ],
-        'Conv2D': [
-            { name: 'filters', type: 'number', default: 32 },
-            { name: 'kernel_size', type: 'number', default: 3 },
-            { name: 'stride', type: 'number', default: 1 }
-        ],
-        'MaxPooling2D': [
-            { name: 'pool_size', type: 'number', default: 2 },
-            { name: 'stride', type: 'number', default: 2 }
-        ],
-        'LSTM': [
-            { name: 'units', type: 'number', default: 64 }
-        ],
-        'Dropout': [
-            { name: 'rate', type: 'number', default: 0.5, step: 0.1 }
-        ],
-        'MultiHeadAttention': [
-            { name: 'num_heads', type: 'number', default: 8 },
-            { name: 'key_dim', type: 'number', default: 64 }
-        ],
-        // Default for layers with no editable params
-        'default': []
-    };
-
-    // --- Drag and Drop Logic ---
-    layerPalette.addEventListener('dragstart', (e) => {
-        if (e.target.classList.contains('draggable-layer')) {
-            e.dataTransfer.setData('text/plain', e.target.dataset.layerType);
+        function initializeApp() {
+            addLog('System initialized - Ready for operations.');
+            updateModels();
+            initializeLossGraph();
+            generateArchitecture();
+            setInterval(updateModels, 5000);
         }
-    });
-
-    designCanvas.addEventListener('dragover', (e) => {
-        e.preventDefault(); // Allow dropping
-    });
-
-    designCanvas.addEventListener('drop', (e) => {
-        e.preventDefault();
-        const layerType = e.dataTransfer.getData('text/plain');
-        addLayerToArchitecture(layerType);
-    });
-
-    function addLayerToArchitecture(layerType) {
-        const layerId = `layer_${Date.now()}`;
-        const layerProps = layerDefs[layerType] || layerDefs['default'];
         
-        const newLayer = {
-            id: layerId,
-            type: layerType,
-            properties: {}
-        };
-        // Set default properties
-        layerProps.forEach(prop => {
-            newLayer.properties[prop.name] = prop.default;
-        });
-
-        modelArchitecture.push(newLayer);
-        renderModelCanvas();
-        logToConsole(`Added ${layerType} layer.`);
-    }
-
-    // --- Rendering Logic ---
-    function renderModelCanvas() {
-        designCanvas.innerHTML = '';
-        if (modelArchitecture.length === 0) {
-            designCanvas.innerHTML = '<p style="text-align:center; color: var(--text-dim);">Drag layers from the left palette to build your model.</p>';
+        // --- UI & VISUALS ---
+        function updateSliderValue(sliderId, displayId) {
+            const slider = document.getElementById(sliderId);
+            const display = document.getElementById(displayId);
+            display.textContent = slider.value;
         }
 
-        modelArchitecture.forEach(layer => {
-            const layerEl = document.createElement('div');
-            layerEl.className = 'canvas-layer';
-            layerEl.dataset.layerId = layer.id;
-            if (layer.id === selectedLayerId) {
-                layerEl.classList.add('selected');
-            }
-
-            const details = Object.entries(layer.properties)
-                .map(([key, value]) => `${key}: ${value}`)
-                .join(', ');
-
-            layerEl.innerHTML = `
-                <span class="layer-name">${layer.type}</span>
-                <span class="layer-details">${details}</span>
-            `;
-            layerEl.addEventListener('click', () => {
-                selectedLayerId = layer.id;
-                renderModelCanvas(); // Re-render to show selection
-                renderPropertiesPanel();
-            });
-            designCanvas.appendChild(layerEl);
-        });
-
-        updateInspectLayerSelect();
-    }
-
-    function renderPropertiesPanel() {
-        if (!selectedLayerId) {
-            propertiesContent.innerHTML = '<p>Select a layer on the canvas to edit its properties.</p>';
-            return;
+        function addLog(message, type = 'info') {
+            const logs = document.getElementById('system-logs');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            const timestamp = new Date().toLocaleTimeString();
+            let color = 'var(--text-muted)';
+            if (type === 'success') color = 'var(--success-glow)';
+            if (type === 'error') color = 'var(--error-glow)';
+            entry.innerHTML = `<span style="color: ${color}">[${timestamp}]</span> ${message}`;
+            logs.appendChild(entry);
+            logs.scrollTop = logs.scrollHeight;
         }
 
-        const layer = modelArchitecture.find(l => l.id === selectedLayerId);
-        if (!layer) return;
-
-        propertiesContent.innerHTML = `<h3>${layer.type} Properties</h3>`;
-        const layerProps = layerDefs[layer.type] || layerDefs['default'];
-
-        if (layerProps.length === 0) {
-            propertiesContent.innerHTML += `<p>No configurable properties for this layer.</p>`;
+        function showStatus(elementId, message, type) {
+            const element = document.getElementById(elementId);
+            element.innerHTML = `<div class="status ${type}">${message}</div>`;
+            setTimeout(() => { element.innerHTML = ''; }, 5000);
         }
-
-        layerProps.forEach(prop => {
-            const group = document.createElement('div');
-            group.className = 'form-group';
-            
-            const label = document.createElement('label');
-            label.textContent = prop.name.replace(/_/g, ' ');
-            group.appendChild(label);
-            
-            let input;
-            if (prop.type === 'select') {
-                input = document.createElement('select');
-                prop.options.forEach(opt => {
-                    const option = document.createElement('option');
-                    option.value = opt;
-                    option.textContent = opt;
-                    if (layer.properties[prop.name] === opt) {
-                        option.selected = true;
-                    }
-                    input.appendChild(option);
-                });
-            } else {
-                input = document.createElement('input');
-                input.type = prop.type;
-                input.value = layer.properties[prop.name];
-                if (prop.step) input.step = prop.step;
-            }
-
-            input.addEventListener('change', (e) => {
-                const value = prop.type === 'number' ? parseFloat(e.target.value) : e.target.value;
-                layer.properties[prop.name] = value;
-                renderModelCanvas(); // Update details on canvas
-            });
-
-            group.appendChild(input);
-            propertiesContent.appendChild(group);
-        });
-    }
-
-    // --- Tab Switching Logic ---
-    document.querySelector('.tab-nav').addEventListener('click', (e) => {
-        if (e.target.classList.contains('tab-button')) {
-            document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
-            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-            
-            e.target.classList.add('active');
-            document.getElementById(`${e.target.dataset.tab}-tab`).classList.add('active');
-        }
-    });
-
-    // --- Training Logic ---
-    startTrainBtn.addEventListener('click', () => {
-        logToConsole('Initiating training request...');
-        if (modelArchitecture.length === 0) {
-            logToConsole('ERROR: Cannot start training. Model architecture is empty.', 'error');
-            return;
-        }
-
-        const params = {
-            model_name: document.getElementById('model-name').value,
-            epochs: parseInt(document.getElementById('epochs').value),
-            batch_size: parseInt(document.getElementById('batch-size').value),
-            learning_rate: parseFloat(document.getElementById('learning-rate').value),
-            // In a real application, you would send the detailed architecture
-            architecture: modelArchitecture
-        };
-
-        // This is where you would send the 'params' object to your backend.
-        // The current Rust backend only accepts a simplified version.
-        // We will call it with the simplified params for demonstration.
-        const simplifiedParams = {
-            model_name: params.model_name,
-            epochs: params.epochs,
-            batch_size: params.batch_size,
-            learning_rate: params.learning_rate,
-        };
-
-        fetch('http://127.0.0.1:8080/api/train', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(simplifiedParams)
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.status === 'success') {
-                logToConsole('Backend acknowledged training request. Starting status polling...');
-                startStatusPolling();
-                initializeChart();
-            } else {
-                logToConsole(`Error starting training: ${data.message}`, 'error');
-            }
-        })
-        .catch(err => {
-            logToConsole(`FATAL: Could not connect to backend. Is it running? ${err}`, 'error');
-        });
-    });
-
-    function startStatusPolling() {
-        if (trainingStatusInterval) clearInterval(trainingStatusInterval);
-
-        trainingStatusInterval = setInterval(() => {
-            fetch('http://127.0.0.1:8080/api/train/status')
-                .then(response => response.json())
-                .then(status => {
-                    updateTrainingUI(status);
-                    if (!status.is_training) {
-                        logToConsole('Training finished!');
-                        clearInterval(trainingStatusInterval);
-                    }
-                })
-                .catch(err => {
-                    logToConsole('Polling failed. Stopping.', 'error');
-                    clearInterval(trainingStatusInterval);
-                });
-        }, 1500); // Poll every 1.5 seconds
-    }
-
-    function updateTrainingUI(status) {
-        logToConsole(status.message);
-        document.getElementById('current-epoch').textContent = status.epoch;
-        document.getElementById('total-epochs').textContent = status.max_epochs;
-        document.getElementById('current-loss').textContent = status.loss.toFixed(4);
-        document.getElementById('current-accuracy').textContent = status.accuracy.toFixed(4);
         
-        const progress = status.max_epochs > 0 ? (status.epoch / status.max_epochs) * 100 : 0;
-        document.getElementById('training-progress').value = progress;
-
-        // Update chart
-        if (trainingChart && status.epoch > 0) {
-            if (!trainingChart.data.labels.includes(status.epoch)) {
-                trainingChart.data.labels.push(status.epoch);
-                trainingChart.data.datasets[0].data.push(status.loss);
-                trainingChart.data.datasets[1].data.push(status.accuracy);
-                trainingChart.update();
-            }
-        }
-    }
-
-    function initializeChart() {
-        const ctx = document.getElementById('training-chart').getContext('2d');
-        if(trainingChart) {
-            trainingChart.destroy();
-        }
-        trainingChart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: [],
-                datasets: [{
-                    label: 'Loss',
-                    data: [],
-                    borderColor: 'rgba(247, 118, 142, 1)', // error color
-                    yAxisID: 'yLoss',
-                }, {
-                    label: 'Accuracy',
-                    data: [],
-                    borderColor: 'rgba(158, 206, 106, 1)', // success color
-                    yAxisID: 'yAccuracy',
-                }]
-            },
-            options: {
-                scales: {
-                    yLoss: { type: 'linear', display: true, position: 'left', title: { display: true, text: 'Loss' } },
-                    yAccuracy: { type: 'linear', display: true, position: 'right', title: { display: true, text: 'Accuracy' }, min: 0, max: 1 }
+        function visualizeGraph(nodes) {
+            const container = document.getElementById('graph-visual');
+            container.innerHTML = '';
+            let isFirst = true;
+            for (const node of nodes) {
+                if (!isFirst) {
+                    const connector = document.createElement('div');
+                    connector.className = 'node-connector';
+                    container.appendChild(connector);
                 }
+                const nodeEl = document.createElement('div');
+                nodeEl.className = 'graph-node';
+                nodeEl.innerHTML = `<strong>${node.op}</strong><br><small>${node.details}</small>`;
+                container.appendChild(nodeEl);
+                isFirst = false;
             }
-        });
-    }
-
-    // --- Inspect Logic ---
-    function updateInspectLayerSelect() {
-        inspectLayerSelect.innerHTML = '';
-        modelArchitecture.forEach((layer, index) => {
-            const option = document.createElement('option');
-            option.value = layer.id;
-            option.textContent = `${index}: ${layer.type}`;
-            inspectLayerSelect.appendChild(option);
-        });
-        renderInspectGrid();
-    }
-
-    function renderInspectGrid() {
-        const grid = document.getElementById('inspect-grid');
-        grid.innerHTML = '';
-        const numCells = Math.floor(Math.random() * 50) + 10; // Mock data
-        for (let i = 0; i < numCells; i++) {
-            const cell = document.createElement('div');
-            cell.className = 'grid-cell';
-            const value = (Math.random() * 2 - 1).toFixed(2);
-            cell.innerHTML = `<div class="grid-cell-content" style="background-color: rgba(122, 162, 247, ${Math.abs(parseFloat(value))})">${value}</div>`;
-            grid.appendChild(cell);
         }
-    }
-    
-    inspectLayerSelect.addEventListener('change', renderInspectGrid);
-    document.getElementById('inspect-param-select').addEventListener('change', renderInspectGrid);
 
-
-    // --- Utility Functions ---
-    function logToConsole(message, type = 'info') {
-        const p = document.createElement('p');
-        const timestamp = new Date().toLocaleTimeString();
-        p.textContent = `[${timestamp}] ${message}`;
-        if (type === 'error') {
-            p.style.color = 'var(--error-color)';
+        // --- ARCHITECTURE & TEMPLATES ---
+        function loadTemplate(type) {
+            const inFeatures = 784, outFeatures = 10;
+            const templates = {
+                mlp: {
+                    nodes: [
+                        { op: 'Linear', details: `${inFeatures} &rarr; 128` },
+                        { op: 'ReLU', details: 'Activation' },
+                        { op: 'Linear', details: `128 &rarr; 64` },
+                        { op: 'ReLU', details: 'Activation' },
+                        { op: 'Linear', details: `64 &rarr; ${outFeatures}` }
+                    ]
+                },
+                transformer: {
+                    nodes: [
+                        { op: 'Linear', details: `512 &rarr; 512` },
+                        { op: 'LayerNorm', details: 'Normalization' },
+                        { op: 'Linear', details: `512 &rarr; 512 (Attn)` },
+                        { op: 'Gelu', details: 'Activation' },
+                        { op: 'Linear', details: `512 &rarr; ${outFeatures}` }
+                    ]
+                },
+                cnn: {
+                    nodes: [
+                        { op: 'Reshape', details: `[1, ${inFeatures}]` },
+                        { op: 'Linear', details: `${inFeatures} &rarr; 256` },
+                        { op: 'ReLU', details: 'Activation' },
+                        { op: 'Linear', details: `256 &rarr; ${outFeatures}` }
+                    ]
+                },
+                autoencoder: {
+                     nodes: [
+                        { op: 'Linear', details: `${inFeatures} &rarr; 128` },
+                        { op: 'ReLU', details: 'Encoder' },
+                        { op: 'Linear', details: `128 &rarr; 32 (Bottle)` },
+                        { op: 'Linear', details: `32 &rarr; 128` },
+                        { op: 'ReLU', details: 'Decoder' },
+                        { op: 'Linear', details: `128 &rarr; ${inFeatures}` }
+                    ]
+                }
+            };
+            const selectedTemplate = templates[type];
+            document.getElementById('input-dims').value = type === 'transformer' ? 512 : inFeatures;
+            document.getElementById('output-dims').value = type === 'transformer' ? 10 : (type === 'autoencoder' ? inFeatures : outFeatures);
+            generateArchitecture(selectedTemplate.nodes);
+            addLog(`Loaded ${type.toUpperCase()} template.`);
         }
-        trainingLog.appendChild(p);
-        trainingLog.scrollTop = trainingLog.scrollHeight;
-    }
+        
+        function generateArchitecture(nodes) {
+            if (!nodes) {
+                const inDim = parseInt(document.getElementById('input-dims').value) || 784;
+                const outDim = parseInt(document.getElementById('output-dims').value) || 10;
+                const hiddenDim = Math.floor((inDim + outDim) / 1.5);
+                nodes = [
+                    { op: 'Linear', details: `${inDim} &rarr; ${hiddenDim}` },
+                    { op: 'ReLU', details: 'Activation' },
+                    { op: 'Linear', details: `${hiddenDim} &rarr; ${outDim}` }
+                ];
+            }
+            visualizeGraph(nodes);
+            
+            const inDim = parseInt(document.getElementById('input-dims').value) || 784;
+            const outDim = parseInt(document.getElementById('output-dims').value) || 10;
+            const hiddenDim = Math.floor((inDim + outDim) / 1.5);
 
-    // --- Initial Render ---
-    renderModelCanvas();
-    renderPropertiesPanel();
-    updateInspectLayerSelect();
-    
-</script>
+            const arch = {
+              "inputs": ["input"], "output_node": "output",
+              "nodes": {
+                "hidden1": {"op":"Linear", "inputs":["input"],"params":{"in_features":inDim,"out_features":hiddenDim}},
+                "relu1": {"op":"ReLU","inputs":["hidden1"]},
+                "output": {"op":"Linear","inputs":["relu1"],"params":{"in_features":hiddenDim,"out_features":outDim}}
+              }
+            };
+            document.getElementById('model-config').value = JSON.stringify(arch, null, 2);
+        }
 
+        // --- API CALLS & LOGIC ---
+        function validateSyntax() {
+            try {
+                JSON.parse(document.getElementById('model-config').value);
+                showStatus('syntax-status', 'JSON syntax is valid', 'success');
+                addLog('Model syntax validated successfully.', 'success');
+            } catch (error) {
+                showStatus('syntax-status', `Syntax error: ${error.message}`, 'error');
+                addLog(`Syntax validation failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function createModel() {
+            try {
+                const config = JSON.parse(document.getElementById('model-config').value);
+                const response = await fetch(`${API_BASE}/models`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({graph: config})
+                });
+                const result = await response.json();
+                if (response.ok) {
+                    showStatus('syntax-status', `Model created: ${result.data.model_id.substring(0,8)}...`, 'success');
+                    addLog(`Model ${result.data.model_id.substring(0,8)} created.`, 'success');
+                    updateModels();
+                } else {
+                    showStatus('syntax-status', `Error: ${result.message}`, 'error');
+                    addLog(`Model creation failed: ${result.message}`, 'error');
+                }
+            } catch (error) {
+                addLog(`API connection error: ${error.message}`, 'error');
+            }
+        }
+
+        async function updateModels() {
+            try {
+                const response = await fetch(`${API_BASE}/models`);
+                const result = await response.json();
+                if (response.ok) {
+                    if (JSON.stringify(state.models) !== JSON.stringify(result.data.models)) {
+                        state.models = result.data.models;
+                        updateModelSelector();
+                    }
+                }
+            } catch (error) { /* Silently fail on interval */ }
+        }
+
+        function updateModelSelector() {
+            const selector = document.getElementById('selected-model');
+            selector.innerHTML = state.models.length ? '' : '<option value="">No models available</option>';
+            state.models.forEach(id => {
+                const option = document.createElement('option');
+                option.value = id;
+                option.textContent = `Model ID: ${id.substring(0, 8)}...`;
+                selector.appendChild(option);
+            });
+        }
+
+        async function startTraining() {
+            const modelId = document.getElementById('selected-model').value;
+            if (!modelId) {
+                showStatus('training-status', 'Please select a model', 'error');
+                return;
+            }
+
+            try {
+                // Generate dummy data based on model architecture for demo
+                const modelConfig = await (await fetch(`${API_BASE}/models/${modelId}`)).json();
+                const inFeatures = modelConfig.data.architecture.nodes.hidden1.params.in_features;
+                const outFeatures = modelConfig.data.architecture.nodes.output.params.out_features;
+                const sampleCount = 100;
+                
+                const xTrain = Array.from({ length: sampleCount }, () => Array.from({ length: inFeatures }, () => Math.random()));
+                const yTrain = Array.from({ length: sampleCount }, () => Array.from({ length: outFeatures }, () => Math.random()));
+
+                const payload = {
+                    x_train: xTrain, y_train: yTrain, loss: "MSE",
+                    optimizer: { SGD: { lr: parseFloat(document.getElementById('learning-rate').value) } },
+                    epochs: parseInt(document.getElementById('epochs').value),
+                    batch_size: parseInt(document.getElementById('batch-size').value)
+                };
+
+                state.isTraining = true;
+                document.getElementById('train-btn').disabled = true;
+                document.getElementById('stop-btn').disabled = false;
+                document.getElementById('training-progress').style.display = 'block';
+                addLog(`Training started for model ${modelId.substring(0, 8)}...`);
+                
+                const response = await fetch(`${API_BASE}/models/${modelId}/train`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+
+                const result = await response.json();
+                
+                if (response.ok) {
+                    state.lossHistory = result.data.loss_history;
+                    updateLossGraph();
+                    showStatus('training-status', 'Training completed!', 'success');
+                    addLog('Training completed successfully.', 'success');
+                } else {
+                    showStatus('training-status', `Training failed: ${result.message}`, 'error');
+                    addLog(`Training failed: ${result.message}`, 'error');
+                }
+            } catch (error) {
+                showStatus('training-status', `Error: ${error.message}`, 'error');
+                addLog(`Training error: ${error.message}`, 'error');
+            } finally {
+                stopTraining();
+            }
+        }
+        
+        function stopTraining() {
+            state.isTraining = false;
+            document.getElementById('train-btn').disabled = false;
+            document.getElementById('stop-btn').disabled = true;
+            document.getElementById('training-progress').style.display = 'none';
+        }
+
+        // --- CHARTING ---
+        function initializeLossGraph() {
+            const canvas = document.getElementById('loss-graph');
+            const ctx = canvas.getContext('2d');
+            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            gradient.addColorStop(0, 'rgba(0, 170, 255, 0.5)');
+            gradient.addColorStop(1, 'rgba(0, 170, 255, 0)');
+
+            // Using a simple library-free implementation
+            lossChart = {
+                ctx: ctx,
+                canvas: canvas,
+                gradient: gradient,
+                draw: function(data) {
+                    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                    if (!data || data.length < 2) return;
+
+                    const maxVal = Math.max(...data);
+                    const minVal = Math.min(...data);
+                    const range = maxVal - minVal || 1;
+                    const padding = 20;
+                    
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(0, this.canvas.height - padding - ((data[0] - minVal) / range) * (this.canvas.height - 2*padding));
+                    data.forEach((point, i) => {
+                        const x = (i / (data.length - 1)) * this.canvas.width;
+                        const y = this.canvas.height - padding - ((point - minVal) / range) * (this.canvas.height - 2*padding);
+                        this.ctx.lineTo(x, y);
+                    });
+                    
+                    this.ctx.strokeStyle = 'var(--primary-glow)';
+                    this.ctx.lineWidth = 2;
+                    this.ctx.stroke();
+
+                    // Fill
+                    this.ctx.lineTo(this.canvas.width, this.canvas.height);
+                    this.ctx.lineTo(0, this.canvas.height);
+                    this.ctx.closePath();
+                    this.ctx.fillStyle = this.gradient;
+                    this.ctx.fill();
+
+                    // Update metrics
+                    document.getElementById('current-loss').textContent = data[data.length - 1].toFixed(5);
+                    document.getElementById('training-epoch').textContent = `${data.length} / ${data.length}`;
+                }
+            };
+            lossChart.draw([0]); // Initial empty state
+        }
+
+        function updateLossGraph() {
+            if (lossChart) {
+                lossChart.draw(state.lossHistory);
+            }
+        }
+    </script>
 </body>
 </html>

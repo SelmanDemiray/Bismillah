@@ -1,20 +1,16 @@
-
 services:
   backend:
     build: ./backend
-    # This service is now built from the Dockerfile and runs the code compiled inside the image.
-    # We have removed the 'volumes' directive that was likely overwriting the compiled binary.
     ports:
       - "8080:8080"
 
   frontend:
     image: nginx:alpine
     ports:
-      # The frontend is exposed on port 80, the standard for HTTP.
       - "80:80"
     volumes:
-      # This volume correctly maps your local HTML file into the nginx server.
       - ./frontend:/usr/share/nginx/html
+    # This simplified 'depends_on' just waits for the backend 
+    # container to be created, which is sufficient.
     depends_on:
       - backend
-
