@@ -71,6 +71,12 @@
         .card.full-width {
             grid-column: 1 / -1;
         }
+        
+        .card-actions {
+            display: flex;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
 
         .card-header {
             display: flex;
@@ -88,6 +94,12 @@
 
         .form-group {
             margin-bottom: 1rem;
+        }
+        
+        .form-group.inline {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
         }
 
         label {
@@ -151,6 +163,17 @@
         .btn-secondary:hover:not(:disabled) {
             background: var(--text-muted);
             color: var(--bg-dark);
+        }
+        
+        .btn-success {
+            border-color: var(--success);
+            color: var(--success);
+        }
+        
+        .btn-success:hover:not(:disabled) {
+            background: var(--success);
+            color: var(--bg-dark);
+            box-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
         }
 
         .template-grid {
@@ -238,7 +261,11 @@
             min-width: 120px;
             text-align: center;
             box-shadow: 0 0 15px rgba(0, 212, 255, 0.2);
+            transition: border-color 0.3s;
         }
+        
+        .graph-node.type-activation { border-color: var(--success); }
+        .graph-node.type-norm { border-color: var(--warning); }
 
         .node-connector {
             width: 30px;
@@ -351,6 +378,7 @@
                             <option value="Linear">Linear</option>
                             <option value="ReLU">ReLU</option>
                             <option value="Gelu">Gelu</option>
+                            <option value="Tanh">Tanh</option>
                             <option value="Sigmoid">Sigmoid</option>
                             <option value="Softmax">Softmax</option>
                             <option value="LayerNorm">LayerNorm</option>
@@ -392,21 +420,36 @@
                     <select id="selected-model">
                         <option value="">No models available</option>
                     </select>
+                    <div class="card-actions">
+                        <button class="btn-success" onclick="app.importModel()">Import</button>
+                        <button class="btn-secondary" onclick="app.exportModel()">Export</button>
+                        <input type="file" id="import-file-input" style="display:none;" accept=".json" onchange="app.handleFileSelect(event)">
+                    </div>
+                </div>
+                
+                <div class="form-group inline">
+                    <div>
+                        <label>Optimizer</label>
+                        <select id="optimizer-type">
+                            <option value="Sgd">SGD</option>
+                            <option value="Adam" selected>Adam</option>
+                        </select>
+                    </div>
+                     <div>
+                        <label>Learning Rate</label>
+                        <input type="number" id="learning-rate" value="0.001" step="0.0001" min="0.00001">
+                    </div>
                 </div>
 
-                <div class="form-group">
-                    <label>Epochs</label>
-                    <input type="number" id="epochs" value="50" min="1">
-                </div>
-
-                <div class="form-group">
-                    <label>Batch Size</label>
-                    <input type="number" id="batch-size" value="32" min="1">
-                </div>
-
-                <div class="form-group">
-                    <label>Learning Rate</label>
-                    <input type="number" id="learning-rate" value="0.01" step="0.001" min="0.0001">
+                <div class="form-group inline">
+                    <div>
+                        <label>Epochs</label>
+                        <input type="number" id="epochs" value="50" min="1">
+                    </div>
+                    <div>
+                        <label>Batch Size</label>
+                        <input type="number" id="batch-size" value="32" min="1">
+                    </div>
                 </div>
 
                 <button id="train-btn" onclick="app.startTraining()">Start Training</button>
@@ -666,6 +709,12 @@
 
                     const inFeatures = firstNode?.op === 'Linear' ? firstNode.params.in_features : 784;
                     const outFeatures = lastNode?.op === 'Linear' ? lastNode.params.out_features : 10;
+                    
+                    const optimizerType = document.getElementById('optimizer-type').value;
+                    const learningRate = parseFloat(document.getElementById('learning-rate').value);
+                    let optimizerPayload = {};
+                    optimizerPayload[optimizerType.toLowerCase()] = { lr: learningRate };
+
 
                     const payload = {
                         x_train: Array.from({ length: 100 }, () => 
@@ -675,14 +724,12 @@
                             Array.from({ length: outFeatures }, () => Math.random())
                         ),
                         loss: "MSE",
-                        optimizer: { 
-                            SGD: { lr: parseFloat(document.getElementById('learning-rate').value) }
-                        },
+                        optimizer: optimizerPayload,
                         epochs: parseInt(document.getElementById('epochs').value),
                         batch_size: parseInt(document.getElementById('batch-size').value)
                     };
 
-                    this.log('Training initiated...', 'info');
+                    this.log(`Training initiated with ${optimizerType}...`, 'info');
 
                     const trainResponse = await fetch(`${API_BASE}/models/${modelId}/train`, {
                         method: 'POST',
@@ -706,6 +753,84 @@
                     state.isRequestPending = false;
                     this.updateButtonStates();
                 }
+            },
+            
+            async exportModel() {
+                const modelId = document.getElementById('selected-model').value;
+                if (!modelId) {
+                    this.showStatus('Please select a model to export', 'error', 3000);
+                    return;
+                }
+                
+                this.showStatus('Exporting model...', 'info', 0);
+                try {
+                    const response = await fetch(`${API_BASE}/models/${modelId}/export`);
+                    if (!response.ok) {
+                        const err = await response.json();
+                        throw new Error(err.message || 'Export failed');
+                    }
+                    const data = await response.json();
+                    const jsonString = JSON.stringify(data, null, 2);
+                    const blob = new Blob([jsonString], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `model_${modelId.substring(0, 8)}.json`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                    
+                    this.showStatus('Model exported successfully', 'success', 3000);
+                    this.log(`Model ${modelId.substring(0,8)}... exported`, 'success');
+                } catch (error) {
+                    this.showStatus(`Export failed: ${error.message}`, 'error', 5000);
+                    this.log(`Export failed: ${error.message}`, 'error');
+                }
+            },
+
+            importModel() {
+                document.getElementById('import-file-input').click();
+            },
+
+            handleFileSelect(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = async (e) => {
+                    try {
+                        const modelData = JSON.parse(e.target.result);
+                        this.showStatus('Importing model...', 'info', 0);
+                        state.isRequestPending = true;
+                        this.updateButtonStates();
+
+                        const response = await fetch(`${API_BASE}/models/import`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(modelData)
+                        });
+
+                        const result = await response.json();
+                        if (!response.ok) {
+                            throw new Error(result.message || 'Import failed');
+                        }
+
+                        this.showStatus('Model imported successfully!', 'success', 4000);
+                        this.log(`Model imported: ${result.data.model_id.substring(0,8)}...`, 'success');
+                        await this.updateAvailableModels();
+
+                    } catch (error) {
+                        this.showStatus(`Import error: ${error.message}`, 'error', 5000);
+                        this.log(`Import failed: ${error.message}`, 'error');
+                    } finally {
+                        state.isRequestPending = false;
+                        this.updateButtonStates();
+                        event.target.value = ''; // Reset file input
+                    }
+                };
+                reader.readAsText(file);
             },
 
             renderAll() {
@@ -787,18 +912,23 @@
                     container.innerHTML = '<p style="color: var(--text-muted);">Add layers to visualize</p>';
                     return;
                 }
+                
+                const activationTypes = ['ReLU', 'Gelu', 'Sigmoid', 'Softmax', 'Tanh'];
 
                 container.innerHTML = state.architecture.layers.map(layer => {
                     let details = '';
+                    let nodeClass = 'graph-node';
                     if (layer.type === 'Linear') {
                         details = `${layer.params.in_features} → ${layer.params.out_features}`;
                     } else if (layer.type === 'LayerNorm') {
                         details = `Shape: ${layer.params.normalized_shape}`;
-                    } else {
+                        nodeClass += ' type-norm';
+                    } else if (activationTypes.includes(layer.type)) {
                         details = 'Activation';
+                        nodeClass += ' type-activation';
                     }
 
-                    return `<div class="graph-node"><strong>${layer.type}</strong><br><small>${details}</small></div>`;
+                    return `<div class="${nodeClass}"><strong>${layer.type}</strong><br><small>${details}</small></div>`;
                 }).join('<div class="node-connector"></div>');
             },
 

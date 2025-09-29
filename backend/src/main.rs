@@ -64,6 +64,19 @@ mod api {
         pub data: Option<Value>,
     }
 
+    #[derive(Serialize, Deserialize)]
+    pub struct SerializableTensor {
+        shape: Vec<usize>,
+        data: Vec<f64>,
+    }
+
+    #[derive(Serialize, Deserialize)]
+    pub struct ExportedModel {
+        architecture: Value,
+        parameters: HashMap<String, SerializableTensor>,
+    }
+
+
     pub async fn run() {
         tracing_subscriber::registry()
             .with(
@@ -84,16 +97,18 @@ mod api {
 
         let app = Router::new()
             .route("/models", post(create_model).get(list_models))
+            .route("/models/import", post(import_model))
             .route("/models/:model_id", get(get_model_details))
             .route("/models/:model_id/train", post(train_model))
             .route("/models/:model_id/predict", post(predict))
+            .route("/models/:model_id/export", get(export_model))
             .route("/health", get(health_check))
             .layer(cors)
             .layer(TraceLayer::new_for_http())
             .with_state(state);
 
         let addr: std::net::SocketAddr = "0.0.0.0:8080".parse().unwrap();
-        tracing::info!("🚀 Neural Network Backend v5.3 listening on http://{}", addr);
+        tracing::info!("🚀 Upgraded Neural Network Backend listening on http://{}", addr);
         let listener = TcpListener::bind(addr).await.unwrap();
         axum::serve(listener, app).await.unwrap();
     }
@@ -347,6 +362,82 @@ mod api {
             message: "Prediction successful".to_string(),
             data: Some(serde_json::json!({ "predictions": tensor_to_json(&predictions) })),
         }))
+    }
+
+    async fn export_model(
+        State(state): State<AppState>,
+        Path(model_id): Path<String>,
+    ) -> Result<Json<ExportedModel>, (StatusCode, Json<ApiResponse>)> {
+        let models = state.models.lock().unwrap();
+        let model = models.get(&model_id).ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ApiResponse {
+                    status: "error".into(),
+                    message: "Model not found".into(),
+                    data: None,
+                }),
+            )
+        })?;
+
+        let architecture = model.to_value();
+        let mut parameters = HashMap::new();
+        for (name, tensor) in model.get_named_params() {
+            let s_tensor = SerializableTensor {
+                shape: tensor.shape.clone(),
+                data: tensor.data.lock().unwrap().clone(),
+            };
+            parameters.insert(name.clone(), s_tensor);
+        }
+
+        tracing::info!("📦 Exported model {}", &model_id[..8]);
+        Ok(Json(ExportedModel {
+            architecture,
+            parameters,
+        }))
+    }
+
+    async fn import_model(
+        State(state): State<AppState>,
+        Json(payload): Json<ExportedModel>,
+    ) -> (StatusCode, Json<ApiResponse>) {
+        tracing::info!("📥 Received model import request");
+        match GraphModel::from_config(&payload.architecture) {
+            Ok(mut model) => {
+                for (name, s_tensor) in payload.parameters {
+                    let new_tensor = nn::core::tensor::Tensor::from_data(s_tensor.data, &s_tensor.shape);
+                    model.set_param(&name, new_tensor);
+                }
+
+                let model_id = Uuid::new_v4().to_string();
+                state
+                    .models
+                    .lock()
+                    .unwrap()
+                    .insert(model_id.clone(), Box::new(model));
+
+                tracing::info!("✅ Model imported successfully: {}", &model_id[..8]);
+                (
+                    StatusCode::CREATED,
+                    Json(ApiResponse {
+                        status: "success".into(),
+                        message: "Model imported successfully".into(),
+                        data: Some(serde_json::json!({ "model_id": model_id })),
+                    }),
+                )
+            }
+            Err(e) => {
+                tracing::error!("❌ Model import failed: {}", e);
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(ApiResponse {
+                        status: "error".into(),
+                        message: format!("Model import failed: {}", e),
+                        data: None,
+                    }),
+                )
+            }
+        }
     }
 }
 
@@ -736,6 +827,28 @@ pub mod nn {
                     vec![Tensor::from_data(result_grad, &grad.shape)]
                 }
             }
+            
+            #[derive(Debug)]
+            pub struct TanhOp;
+            impl Op for TanhOp {
+                fn forward(&self, ctx: &Arc<Context>) -> Tensor {
+                    let input_data = ctx.parents[0].data.lock().unwrap();
+                    let result_data: Vec<f64> = input_data.par_iter().map(|&x| x.tanh()).collect();
+                    Tensor::new(result_data, &ctx.parents[0].shape, Some(ctx.clone()))
+                }
+
+                fn backward(&self, ctx: &Arc<Context>, grad: &Tensor) -> Vec<Tensor> {
+                    let fwd_output = self.forward(ctx);
+                    let y_data = fwd_output.data.lock().unwrap();
+                    let grad_data = grad.data.lock().unwrap();
+                    let result_grad: Vec<f64> = y_data
+                        .par_iter()
+                        .zip(grad_data.par_iter())
+                        .map(|(&y, &g)| (1.0 - y.powi(2)) * g)
+                        .collect();
+                    vec![Tensor::from_data(result_grad, &grad.shape)]
+                }
+            }
 
             #[derive(Debug)]
             pub struct ReshapeOp {
@@ -985,7 +1098,9 @@ pub mod nn {
         pub trait AiModel: Send + Sync {
             fn forward(&mut self, input: &Tensor) -> Tensor;
             fn get_params(&self) -> Vec<Tensor>;
+            fn get_named_params(&self) -> &HashMap<String, Tensor>;
             fn to_value(&self) -> Value;
+            fn set_param(&mut self, name: &str, tensor: Tensor);
         }
 
         pub struct GraphModel {
@@ -1185,6 +1300,7 @@ pub mod nn {
                                 "Gelu" => Arc::new(GeluOp),
                                 "Sigmoid" => Arc::new(SigmoidOp),
                                 "Softmax" => Arc::new(SoftmaxOp),
+                                "Tanh" => Arc::new(TanhOp),
                                 "Add" => Arc::new(AddOp),
                                 "Sub" => Arc::new(SubOp),
                                 "Mul" => Arc::new(MulOp),
@@ -1224,9 +1340,17 @@ pub mod nn {
             fn get_params(&self) -> Vec<Tensor> {
                 self.params.values().cloned().collect()
             }
+            
+            fn get_named_params(&self) -> &HashMap<String, Tensor> {
+                &self.params
+            }
 
             fn to_value(&self) -> Value {
                 self.config.clone()
+            }
+            
+            fn set_param(&mut self, name: &str, tensor: Tensor) {
+                self.params.insert(name.to_string(), tensor);
             }
         }
     }
@@ -1266,8 +1390,9 @@ pub mod nn {
     }
 
     pub mod optimizers {
-        use super::models::AiModel;
+        use super::{core::tensor::Tensor, models::AiModel};
         use serde::Deserialize;
+        use std::collections::HashMap;
 
         pub trait Optimizer: Send + Sync {
             fn step(&mut self, model: &dyn AiModel);
@@ -1275,14 +1400,15 @@ pub mod nn {
         }
 
         #[derive(Deserialize, Debug)]
+        #[serde(rename_all = "camelCase")]
         pub enum OptimizerConfig {
-            SGD { lr: f64 },
+            Sgd { lr: f64 },
             Adam { lr: f64 },
         }
 
         pub fn create_optimizer(config: OptimizerConfig) -> Box<dyn Optimizer> {
             match config {
-                OptimizerConfig::SGD { lr } => Box::new(SGD { lr }),
+                OptimizerConfig::Sgd { lr } => Box::new(SGD { lr }),
                 OptimizerConfig::Adam { lr } => Box::new(Adam::new(lr)),
             }
         }
@@ -1310,15 +1436,70 @@ pub mod nn {
                 }
             }
         }
+        
+        pub struct Adam {
+            lr: f64,
+            beta1: f64,
+            beta2: f64,
+            epsilon: f64,
+            m: HashMap<usize, Tensor>,
+            v: HashMap<usize, Tensor>,
+            t: usize,
+        }
 
-        pub struct Adam {}
         impl Adam {
-            pub fn new(_lr: f64) -> Self {
-                Self {}
+            pub fn new(lr: f64) -> Self {
+                Self {
+                    lr,
+                    beta1: 0.9,
+                    beta2: 0.999,
+                    epsilon: 1e-8,
+                    m: HashMap::new(),
+                    v: HashMap::new(),
+                    t: 0,
+                }
             }
         }
         impl Optimizer for Adam {
-            fn step(&mut self, _model: &dyn AiModel) {}
+            fn step(&mut self, model: &dyn AiModel) {
+                self.t += 1;
+                let beta1_t = self.beta1.powi(self.t as i32);
+                let beta2_t = self.beta2.powi(self.t as i32);
+
+                for param in model.get_params() {
+                    if let Some(g) = param.grad.lock().unwrap().as_ref() {
+                        let m_t = self.m.entry(param.id).or_insert_with(|| {
+                            Tensor::from_data(vec![0.0; param.size()], &param.shape)
+                        });
+                        let v_t = self.v.entry(param.id).or_insert_with(|| {
+                            Tensor::from_data(vec![0.0; param.size()], &param.shape)
+                        });
+
+                        let mut m_data = m_t.data.lock().unwrap();
+                        let mut v_data = v_t.data.lock().unwrap();
+                        let g_data = g.data.lock().unwrap();
+                        
+                        // Update biased first moment estimate
+                        for (m_val, g_val) in m_data.iter_mut().zip(g_data.iter()) {
+                            *m_val = self.beta1 * *m_val + (1.0 - self.beta1) * g_val;
+                        }
+                        
+                        // Update biased second raw moment estimate
+                        for (v_val, g_val) in v_data.iter_mut().zip(g_data.iter()) {
+                            *v_val = self.beta2 * *v_val + (1.0 - self.beta2) * g_val.powi(2);
+                        }
+                        
+                        let m_hat_data: Vec<f64> = m_data.iter().map(|&m| m / (1.0 - beta1_t)).collect();
+                        let v_hat_data: Vec<f64> = v_data.iter().map(|&v| v / (1.0 - beta2_t)).collect();
+                        
+                        let mut p_data = param.data.lock().unwrap();
+                        for i in 0..p_data.len() {
+                            p_data[i] -= self.lr * m_hat_data[i] / (v_hat_data[i].sqrt() + self.epsilon);
+                        }
+                    }
+                }
+            }
+
             fn zero_grad(&mut self, model: &dyn AiModel) {
                 for param in model.get_params() {
                     *param.grad.lock().unwrap() = None;
@@ -1386,7 +1567,9 @@ pub mod nn {
                     0.0
                 };
                 loss_history.push(avg_loss);
-                tracing::info!("Epoch {}/{}, Loss: {:.6}", epoch + 1, epochs, avg_loss);
+                if (epoch + 1) % 10 == 0 || epoch == 0 || epoch == epochs - 1 {
+                    tracing::info!("Epoch {}/{}, Loss: {:.6}", epoch + 1, epochs, avg_loss);
+                }
             }
             loss_history
         }
