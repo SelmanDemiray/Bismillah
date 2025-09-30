@@ -347,6 +347,96 @@
         .loading {
             animation: pulse 1.5s ease-in-out infinite;
         }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .metric-card {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+            text-align: center;
+        }
+
+        .metric-label {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .metric-value {
+            color: var(--primary);
+            font-size: 1.5rem;
+            font-weight: 600;
+            font-family: 'Courier New', monospace;
+        }
+
+        .progress-section {
+            margin-bottom: 1.5rem;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 0.5rem;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary), var(--secondary));
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .progress-text {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            text-align: center;
+        }
+
+        .charts-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .chart-section {
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 1rem;
+        }
+
+        .chart-section h3 {
+            color: var(--primary);
+            font-size: 1rem;
+            margin-bottom: 0.5rem;
+            text-align: center;
+        }
+
+        .chart-section canvas {
+            width: 100%;
+            height: 150px;
+        }
+
+        @media (max-width: 768px) {
+            .charts-container {
+                grid-template-columns: 1fr;
+            }
+            
+            .metrics-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
     </style>
 </head>
 <body>
@@ -443,8 +533,22 @@
 
                 <div class="form-group inline">
                     <div>
+                        <label>Loss Function</label>
+                        <select id="loss-type">
+                            <option value="MSE" selected>MSE</option>
+                            <option value="CrossEntropy">Cross Entropy</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Validation Split</label>
+                        <input type="number" id="validation-split" value="0.2" step="0.1" min="0" max="0.9">
+                    </div>
+                </div>
+
+                <div class="form-group inline">
+                    <div>
                         <label>Epochs</label>
-                        <input type="number" id="epochs" value="50" min="1">
+                        <input type="number" id="epochs" value="10" min="1">
                     </div>
                     <div>
                         <label>Batch Size</label>
@@ -457,9 +561,54 @@
 
             <div class="card full-width">
                 <div class="card-header">
-                    <h2>System Monitor</h2>
+                    <h2>Training Monitor</h2>
                 </div>
-                <canvas id="loss-graph"></canvas>
+                
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <div class="metric-label">Current Loss</div>
+                        <div class="metric-value" id="current-loss">--</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Accuracy</div>
+                        <div class="metric-value" id="current-accuracy">--</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Epoch</div>
+                        <div class="metric-value" id="current-epoch">--</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Learning Rate</div>
+                        <div class="metric-value" id="current-lr">--</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Gradient Norm</div>
+                        <div class="metric-value" id="gradient-norm">--</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Param Norm</div>
+                        <div class="metric-value" id="param-norm">--</div>
+                    </div>
+                </div>
+
+                <div class="progress-section">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="training-progress"></div>
+                    </div>
+                    <div class="progress-text" id="progress-text">Ready to train</div>
+                </div>
+
+                <div class="charts-container">
+                    <div class="chart-section">
+                        <h3>Loss & Accuracy</h3>
+                        <canvas id="loss-graph"></canvas>
+                    </div>
+                    <div class="chart-section">
+                        <h3>Gradient Norm</h3>
+                        <canvas id="gradient-graph"></canvas>
+                    </div>
+                </div>
+                
                 <div class="logs" id="logs"></div>
             </div>
         </div>
@@ -479,6 +628,15 @@
             models: [],
             architecture: { layers: [] },
             isRequestPending: false,
+            trainingMetrics: {
+                lossHistory: [],
+                accuracyHistory: [],
+                gradientHistory: [],
+                paramHistory: [],
+                currentEpoch: 0,
+                totalEpochs: 0,
+                isTraining: false
+            }
         };
 
         const app = {
@@ -690,10 +848,23 @@
                 }
 
                 state.isRequestPending = true;
+                state.trainingMetrics.isTraining = true;
                 this.updateButtonStates();
                 this.showStatus('Starting training...', 'info', 0);
+                
+                // Clear previous metrics
+                this.clearMetrics();
+                this.updateProgress(0);
 
                 try {
+                    // Test backend connection first
+                    this.log('Testing backend connection...', 'info');
+                    const healthResponse = await fetch(`${API_BASE}/health`);
+                    if (!healthResponse.ok) {
+                        throw new Error('Backend not responding');
+                    }
+                    this.log('Backend connection confirmed', 'success');
+                    
                     const detailsResponse = await fetch(`${API_BASE}/models/${modelId}`);
                     const detailsResult = await detailsResponse.json();
                     
@@ -715,6 +886,11 @@
                     let optimizerPayload = {};
                     optimizerPayload[optimizerType.toLowerCase()] = { lr: learningRate };
 
+                    const lossType = document.getElementById('loss-type').value;
+                    const validationSplit = parseFloat(document.getElementById('validation-split').value);
+                    const epochs = parseInt(document.getElementById('epochs').value);
+                    
+                    state.trainingMetrics.totalEpochs = epochs;
 
                     const payload = {
                         x_train: Array.from({ length: 100 }, () => 
@@ -723,34 +899,106 @@
                         y_train: Array.from({ length: 100 }, () => 
                             Array.from({ length: outFeatures }, () => Math.random())
                         ),
-                        loss: "MSE",
+                        loss: lossType,
                         optimizer: optimizerPayload,
-                        epochs: parseInt(document.getElementById('epochs').value),
-                        batch_size: parseInt(document.getElementById('batch-size').value)
+                        epochs: epochs,
+                        batch_size: parseInt(document.getElementById('batch-size').value),
+                        validation_split: validationSplit
                     };
 
                     this.log(`Training initiated with ${optimizerType}...`, 'info');
+                    this.log(`Request payload: epochs=${epochs}, batch_size=${payload.batch_size}`, 'info');
+                    this.showStatus('Training in progress...', 'info', 0);
 
-                    const trainResponse = await fetch(`${API_BASE}/models/${modelId}/train`, {
+                    // Use fetch to POST the training request, then connect with SSE
+                    this.log('Connecting to /train-stream endpoint...', 'info');
+                    const response = await fetch(`${API_BASE}/models/${modelId}/train-stream`, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: { 
+                            'Content-Type': 'application/json',
+                            'Accept': 'text/event-stream'
+                        },
                         body: JSON.stringify(payload)
                     });
 
-                    const trainResult = await trainResponse.json();
+                    this.log(`Response status: ${response.status} ${response.statusText}`, 'info');
 
-                    if (trainResponse.ok) {
-                        this.renderLossGraph(trainResult.data.loss_history);
-                        this.log('Training complete!', 'success');
-                        this.showStatus('Training completed successfully', 'success', 5000);
-                    } else {
-                        throw new Error(trainResult.message || 'Training failed');
+                    if (!response.ok) {
+                        let errorMessage = 'Training failed to start';
+                        try {
+                            const errorData = await response.json();
+                            errorMessage = errorData.message || errorMessage;
+                        } catch (e) {
+                            const errorText = await response.text();
+                            errorMessage = errorText || errorMessage;
+                        }
+                        throw new Error(errorMessage);
                     }
+
+                    // Read SSE stream
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    let buffer = '';
+
+                    this.log('Connected to training stream successfully', 'success');
+                    this.log('Waiting for training events...', 'info');
+
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        
+                        if (done) {
+                            this.log('Training stream ended', 'info');
+                            break;
+                        }
+
+                        buffer += decoder.decode(value, { stream: true });
+                        const lines = buffer.split('\n');
+                        buffer = lines.pop(); // Keep incomplete line in buffer
+
+                        for (const line of lines) {
+                            if (line.trim() === '') continue; // Skip empty lines
+                            
+                            if (line.startsWith('data: ')) {
+                                const data = line.substring(6);
+                                if (data.trim() === 'keep-alive') {
+                                    console.log('Received keep-alive');
+                                    continue;
+                                }
+                                
+                                try {
+                                    const event = JSON.parse(data);
+                                    console.log('Received event:', event);
+                                    
+                                    if (event.type === 'started') {
+                                        this.log(`Training started: ${event.data.epochs} epochs, batch size ${event.data.batch_size}`, 'success');
+                                    } else if (event.type === 'info') {
+                                        this.log(event.data.message, 'info');
+                                    } else if (event.type === 'progress') {
+                                        this.handleProgressUpdate(event.data);
+                                    } else if (event.type === 'complete') {
+                                        this.handleTrainingComplete(event.data);
+                                    } else {
+                                        console.log('Unknown event type:', event.type);
+                                    }
+                                } catch (e) {
+                                    console.error('Failed to parse SSE data:', e, 'Data:', data);
+                                    this.log(`Parse error: ${e.message}`, 'error');
+                                }
+                            } else if (line.startsWith(':')) {
+                                // Comment line, ignore
+                                console.log('SSE comment:', line);
+                            } else {
+                                console.log('Unknown SSE line:', line);
+                            }
+                        }
+                    }
+
                 } catch (error) {
                     this.log(`Training failed: ${error.message}`, 'error');
                     this.showStatus(`Training error: ${error.message}`, 'error', 10000);
                 } finally {
                     state.isRequestPending = false;
+                    state.trainingMetrics.isTraining = false;
                     this.updateButtonStates();
                 }
             },
@@ -943,7 +1191,16 @@
 
             updateButtonStates() {
                 document.getElementById('create-model-btn').disabled = state.isRequestPending;
-                document.getElementById('train-btn').disabled = state.isRequestPending || state.models.length === 0;
+                const trainBtn = document.getElementById('train-btn');
+                trainBtn.disabled = state.isRequestPending || state.models.length === 0;
+                
+                if (state.trainingMetrics.isTraining) {
+                    trainBtn.textContent = 'Training...';
+                    trainBtn.classList.add('loading');
+                } else {
+                    trainBtn.textContent = 'Start Training';
+                    trainBtn.classList.remove('loading');
+                }
             },
 
             showStatus(message, type = 'info', duration = 3000) {
@@ -971,48 +1228,239 @@
                 logs.scrollTop = logs.scrollHeight;
             },
 
-            renderLossGraph(lossHistory) {
+            handleProgressUpdate(metric) {
+                // Add metric to history
+                state.trainingMetrics.lossHistory.push(metric.loss);
+                state.trainingMetrics.accuracyHistory.push(metric.accuracy);
+                state.trainingMetrics.gradientHistory.push(metric.gradient_norm);
+                state.trainingMetrics.paramHistory.push(metric.param_norm);
+                state.trainingMetrics.currentEpoch = metric.epoch;
+
+                // Update display
+                this.updateMetricsDisplay(metric);
+                
+                // Update progress bar
+                const progress = (metric.epoch / state.trainingMetrics.totalEpochs) * 100;
+                this.updateProgress(progress);
+                
+                // Re-render graphs
+                this.renderLossAccuracyGraph();
+                this.renderGradientGraph();
+                
+                // Log every 10 epochs or first/last
+                if (metric.epoch % 10 === 0 || metric.epoch === 1 || metric.epoch === state.trainingMetrics.totalEpochs) {
+                    this.log(`Epoch ${metric.epoch}/${state.trainingMetrics.totalEpochs}: Loss=${metric.loss.toFixed(6)}, Acc=${(metric.accuracy * 100).toFixed(2)}%`, 'info');
+                }
+            },
+
+            handleTrainingComplete(data) {
+                this.log('Training completed successfully!', 'success');
+                this.showStatus('Training completed', 'success', 5000);
+                this.updateProgress(100);
+                
+                if (data.final_metrics) {
+                    this.log(`Final Loss: ${data.final_metrics.loss.toFixed(6)}`, 'success');
+                    this.log(`Final Accuracy: ${(data.final_metrics.accuracy * 100).toFixed(2)}%`, 'success');
+                }
+            },
+
+            handleTrainingResults(data) {
+                this.log('Processing training results...', 'info');
+                
+                if (data.training_progress && data.training_progress.metrics) {
+                    const metrics = data.training_progress.metrics;
+                    this.log(`Found ${metrics.length} training metrics`, 'info');
+                    
+                    // Update state
+                    state.trainingMetrics.lossHistory = metrics.map(m => m.loss);
+                    state.trainingMetrics.accuracyHistory = metrics.map(m => m.accuracy);
+                    state.trainingMetrics.gradientHistory = metrics.map(m => m.gradient_norm);
+                    state.trainingMetrics.paramHistory = metrics.map(m => m.param_norm);
+                    state.trainingMetrics.totalEpochs = data.training_progress.total_epochs;
+                    state.trainingMetrics.currentEpoch = data.training_progress.current_epoch;
+                    state.trainingMetrics.isTraining = false;
+
+                    // Update metrics display
+                    if (metrics.length > 0) {
+                        this.updateMetricsDisplay(metrics[metrics.length - 1]);
+                    }
+                    
+                    // Render graphs
+                    this.renderLossAccuracyGraph();
+                    this.renderGradientGraph();
+                    
+                    // Update progress
+                    this.updateProgress(100);
+                    
+                    this.log('Training results processed successfully', 'success');
+                } else {
+                    this.log('No training progress data found in response', 'error');
+                    this.log(`Available data keys: ${Object.keys(data)}`, 'info');
+                }
+            },
+
+            updateMetricsDisplay(metrics) {
+                document.getElementById('current-loss').textContent = metrics.loss.toFixed(6);
+                document.getElementById('current-accuracy').textContent = (metrics.accuracy * 100).toFixed(2) + '%';
+                document.getElementById('current-epoch').textContent = `${metrics.epoch}/${state.trainingMetrics.totalEpochs}`;
+                document.getElementById('current-lr').textContent = metrics.learning_rate.toFixed(6);
+                document.getElementById('gradient-norm').textContent = metrics.gradient_norm.toFixed(6);
+                document.getElementById('param-norm').textContent = metrics.param_norm.toFixed(6);
+            },
+
+            updateProgress(percentage) {
+                const progressFill = document.getElementById('training-progress');
+                const progressText = document.getElementById('progress-text');
+                
+                progressFill.style.width = percentage + '%';
+                progressText.textContent = percentage === 100 ? 'Training Complete' : `Training: ${percentage}%`;
+            },
+
+            renderLossAccuracyGraph() {
                 const canvas = document.getElementById('loss-graph');
                 const ctx = canvas.getContext('2d');
                 
                 canvas.width = canvas.offsetWidth;
-                canvas.height = 200;
+                canvas.height = 150;
 
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-                if (!lossHistory || lossHistory.length < 2) return;
+                if (!state.trainingMetrics.lossHistory.length) return;
 
-                const maxLoss = Math.max(...lossHistory);
-                const minLoss = Math.min(...lossHistory);
-                const range = maxLoss - minLoss || 1;
+                const lossData = state.trainingMetrics.lossHistory;
+                const accuracyData = state.trainingMetrics.accuracyHistory;
+                
+                const maxLoss = Math.max(...lossData);
+                const minLoss = Math.min(...lossData);
+                const maxAcc = Math.max(...accuracyData);
+                const minAcc = Math.min(...accuracyData);
+                
+                const lossRange = maxLoss - minLoss || 1;
+                const accRange = maxAcc - minAcc || 1;
+                
+                const padding = 20;
+                const graphWidth = canvas.width - 2 * padding;
+                const graphHeight = canvas.height - 2 * padding;
+
+                // Draw loss line
+                ctx.beginPath();
+                ctx.strokeStyle = '#ff3838';
+                ctx.lineWidth = 2;
+                lossData.forEach((loss, i) => {
+                    const x = padding + (lossData.length > 1 ? (i / (lossData.length - 1)) * graphWidth : graphWidth / 2);
+                    const y = padding + ((loss - minLoss) / lossRange) * graphHeight;
+                    
+                    if (i === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                });
+                ctx.stroke();
+
+                // Draw accuracy line
+                ctx.beginPath();
+                ctx.strokeStyle = '#00ff88';
+                ctx.lineWidth = 2;
+                accuracyData.forEach((acc, i) => {
+                    const x = padding + (accuracyData.length > 1 ? (i / (accuracyData.length - 1)) * graphWidth : graphWidth / 2);
+                    const y = padding + graphHeight - ((acc - minAcc) / accRange) * graphHeight;
+                    
+                    if (i === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                });
+                ctx.stroke();
+
+                // Draw legend
+                ctx.fillStyle = '#ff3838';
+                ctx.fillRect(padding, padding - 15, 10, 2);
+                ctx.fillStyle = '#8888a8';
+                ctx.font = '10px monospace';
+                ctx.fillText('Loss', padding + 15, padding - 10);
+
+                ctx.fillStyle = '#00ff88';
+                ctx.fillRect(padding + 60, padding - 15, 10, 2);
+                ctx.fillStyle = '#8888a8';
+                ctx.fillText('Accuracy', padding + 75, padding - 10);
+            },
+
+            renderGradientGraph() {
+                const canvas = document.getElementById('gradient-graph');
+                const ctx = canvas.getContext('2d');
+                
+                canvas.width = canvas.offsetWidth;
+                canvas.height = 150;
+
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                if (!state.trainingMetrics.gradientHistory.length) return;
+
+                const gradientData = state.trainingMetrics.gradientHistory;
+                const maxGrad = Math.max(...gradientData);
+                const minGrad = Math.min(...gradientData);
+                const range = maxGrad - minGrad || 1;
                 
                 const padding = 20;
                 const graphWidth = canvas.width - 2 * padding;
                 const graphHeight = canvas.height - 2 * padding;
 
                 ctx.beginPath();
-                lossHistory.forEach((loss, i) => {
-                    const x = padding + (i / (lossHistory.length - 1)) * graphWidth;
-                    const y = padding + graphHeight - ((loss - minLoss) / range) * graphHeight;
+                gradientData.forEach((grad, i) => {
+                    const x = padding + (gradientData.length > 1 ? (i / (gradientData.length - 1)) * graphWidth : graphWidth / 2);
+                    const y = padding + graphHeight - ((grad - minGrad) / range) * graphHeight;
                     
                     if (i === 0) ctx.moveTo(x, y);
                     else ctx.lineTo(x, y);
                 });
 
-                ctx.strokeStyle = '#00d4ff';
+                ctx.strokeStyle = '#ffa500';
                 ctx.lineWidth = 2;
                 ctx.stroke();
 
-                ctx.fillStyle = 'rgba(0, 212, 255, 0.1)';
+                ctx.fillStyle = 'rgba(255, 165, 0, 0.1)';
                 ctx.lineTo(canvas.width - padding, canvas.height - padding);
                 ctx.lineTo(padding, canvas.height - padding);
                 ctx.closePath();
                 ctx.fill();
 
                 ctx.fillStyle = '#8888a8';
-                ctx.font = '12px monospace';
-                ctx.fillText(`Max: ${maxLoss.toFixed(4)}`, padding, padding - 5);
-                ctx.fillText(`Min: ${minLoss.toFixed(4)}`, padding, canvas.height - 5);
+                ctx.font = '10px monospace';
+                ctx.fillText(`Max: ${maxGrad.toFixed(4)}`, padding, padding - 5);
+                ctx.fillText(`Min: ${minGrad.toFixed(4)}`, padding, canvas.height - 5);
+            },
+
+            renderLossGraph(lossHistory) {
+                // Legacy function for backward compatibility
+                this.renderLossAccuracyGraph();
+            },
+
+            clearMetrics() {
+                // Clear all metric displays
+                document.getElementById('current-loss').textContent = '--';
+                document.getElementById('current-accuracy').textContent = '--';
+                document.getElementById('current-epoch').textContent = '--';
+                document.getElementById('current-lr').textContent = '--';
+                document.getElementById('gradient-norm').textContent = '--';
+                document.getElementById('param-norm').textContent = '--';
+                
+                // Clear state
+                state.trainingMetrics.lossHistory = [];
+                state.trainingMetrics.accuracyHistory = [];
+                state.trainingMetrics.gradientHistory = [];
+                state.trainingMetrics.paramHistory = [];
+                state.trainingMetrics.currentEpoch = 0;
+                state.trainingMetrics.totalEpochs = 0;
+                
+                // Clear graphs
+                const lossCanvas = document.getElementById('loss-graph');
+                const gradientCanvas = document.getElementById('gradient-graph');
+                
+                if (lossCanvas) {
+                    const ctx = lossCanvas.getContext('2d');
+                    ctx.clearRect(0, 0, lossCanvas.width, lossCanvas.height);
+                }
+                
+                if (gradientCanvas) {
+                    const ctx = gradientCanvas.getContext('2d');
+                    ctx.clearRect(0, 0, gradientCanvas.width, gradientCanvas.height);
+                }
             }
         };
 

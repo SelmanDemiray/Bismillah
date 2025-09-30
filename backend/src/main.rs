@@ -1,7 +1,7 @@
 use axum::{
     extract::{Path, State},
     http::{StatusCode, Method},
-    response::Json,
+    response::{Json, sse::{Event, Sse}},
     routing::{get, post},
     Router,
 };
@@ -10,10 +10,12 @@ use serde_json::Value;
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
+    convert::Infallible,
 };
 use tokio::net::TcpListener;
+use tokio_stream::{wrappers::UnboundedReceiverStream, StreamExt};
+use futures::stream::Stream;
 use uuid::Uuid;
-use rayon::prelude::*;
 use tower_http::cors::{CorsLayer, Any};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -49,6 +51,7 @@ mod api {
         pub loss: LossType,
         pub epochs: usize,
         pub batch_size: usize,
+        pub validation_split: Option<f64>,
     }
 
     #[derive(Deserialize)]
@@ -100,6 +103,7 @@ mod api {
             .route("/models/import", post(import_model))
             .route("/models/:model_id", get(get_model_details))
             .route("/models/:model_id/train", post(train_model))
+            .route("/models/:model_id/train-stream", post(train_model_stream))
             .route("/models/:model_id/predict", post(predict))
             .route("/models/:model_id/export", get(export_model))
             .route("/health", get(health_check))
@@ -308,7 +312,7 @@ mod api {
         let mut optimizer = create_optimizer(payload.optimizer);
         let loss_fn = create_loss(payload.loss);
 
-        let history = nn::training::train(
+        let training_progress = nn::training::train(
             model.as_mut(),
             x_data,
             y_data,
@@ -323,8 +327,163 @@ mod api {
         Ok(Json(ApiResponse {
             status: "success".to_string(),
             message: "Training completed successfully".to_string(),
-            data: Some(serde_json::json!({ "loss_history": history })),
+            data: Some(serde_json::json!({
+                "training_progress": training_progress,
+                "final_metrics": training_progress.metrics.last(),
+                "loss_history": training_progress.metrics.iter().map(|m| m.loss).collect::<Vec<f64>>(),
+                "accuracy_history": training_progress.metrics.iter().map(|m| m.accuracy).collect::<Vec<f64>>(),
+            })),
         }))
+    }
+
+    async fn train_model_stream(
+        State(state): State<AppState>,
+        Path(model_id): Path<String>,
+        Json(payload): Json<TrainRequest>,
+    ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ApiResponse>)> {
+        tracing::info!("🏋️ Starting streaming training for model: {}", &model_id[..8]);
+
+        let models = state.models.lock().unwrap();
+        let model_exists = models.contains_key(&model_id);
+        drop(models);
+
+        if !model_exists {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(ApiResponse {
+                    status: "error".into(),
+                    message: "Model not found".into(),
+                    data: None,
+                }),
+            ));
+        }
+
+        let x_data = match json_to_tensor(&payload.x_train) {
+            Ok(t) => t,
+            Err(e) => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(ApiResponse {
+                        status: "error".into(),
+                        message: format!("Invalid x_train data: {}", e),
+                        data: None,
+                    }),
+                ));
+            }
+        };
+
+        let y_data = match json_to_tensor(&payload.y_train) {
+            Ok(t) => t,
+            Err(e) => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(ApiResponse {
+                        status: "error".into(),
+                        message: format!("Invalid y_train data: {}", e),
+                        data: None,
+                    }),
+                ));
+            }
+        };
+
+        let optimizer_config = payload.optimizer;
+        let loss_type = payload.loss;
+        let epochs = payload.epochs;
+        let batch_size = payload.batch_size;
+
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        
+        // Send initial "started" event
+        let _ = tx.send(serde_json::json!({
+            "type": "started",
+            "data": {
+                "epochs": epochs,
+                "batch_size": batch_size
+            }
+        }));
+        
+        tracing::info!("Sent initial started event");
+        
+        // Spawn training in a separate blocking task
+        let state_clone = state.clone();
+        let model_id_clone = model_id.clone();
+        tokio::task::spawn_blocking(move || {
+            tracing::info!("🏋️ Training task started for model {}", &model_id_clone[..8]);
+            
+            // Send a progress indicator
+            let _ = tx.send(serde_json::json!({
+                "type": "info",
+                "data": { "message": "Training task initialized" }
+            }));
+            
+            let mut optimizer = create_optimizer(optimizer_config);
+            let loss_fn = create_loss(loss_type);
+
+            tracing::info!("Optimizer and loss function created");
+            let _ = tx.send(serde_json::json!({
+                "type": "info",
+                "data": { "message": "Optimizer configured" }
+            }));
+
+            let mut models = state_clone.models.lock().unwrap();
+            let model = models.get_mut(&model_id_clone).unwrap();
+
+            tracing::info!("Starting training loop with {} epochs", epochs);
+            let _ = tx.send(serde_json::json!({
+                "type": "info",
+                "data": { "message": format!("Starting {} epochs", epochs) }
+            }));
+
+            let training_result = nn::training::train_with_callback(
+                model.as_mut(),
+                x_data,
+                y_data,
+                epochs,
+                batch_size,
+                &mut *optimizer,
+                &*loss_fn,
+                |metric| {
+                    let event_data = serde_json::json!({
+                        "type": "progress",
+                        "data": metric
+                    });
+                    tracing::info!("📊 Epoch {}/{}: Loss={:.6}", metric.epoch, epochs, metric.loss);
+                    if let Err(e) = tx.send(event_data) {
+                        tracing::error!("Failed to send progress event: {}", e);
+                    }
+                    None
+                }
+            );
+
+            tracing::info!("✅ Training loop completed");
+
+            // Send completion event
+            let completion_data = serde_json::json!({
+                "type": "complete",
+                "data": {
+                    "training_progress": training_result,
+                    "final_metrics": training_result.metrics.last(),
+                }
+            });
+            if let Err(e) = tx.send(completion_data) {
+                tracing::error!("Failed to send completion event: {}", e);
+            } else {
+                tracing::info!("Completion event sent successfully");
+            }
+        });
+
+        tracing::info!("Setting up SSE stream");
+        
+        let stream = UnboundedReceiverStream::new(rx).map(|data| {
+            tracing::debug!("Streaming event to client");
+            Ok(Event::default().json_data(data).unwrap())
+        });
+
+        Ok(Sse::new(stream).keep_alive(
+            axum::response::sse::KeepAlive::new()
+                .interval(std::time::Duration::from_secs(1))
+                .text("keep-alive"),
+        ))
     }
 
     async fn predict(
@@ -625,9 +784,9 @@ pub mod nn {
         pub mod ops {
             use super::autograd::{Context, Op};
             use super::tensor::Tensor;
-            use rayon::prelude::*;
             use std::f64::consts::FRAC_2_SQRT_PI;
             use std::sync::Arc;
+            use rayon::iter::{IntoParallelRefIterator, ParallelIterator, IndexedParallelIterator};
 
             #[derive(Debug)]
             pub struct AddOp;
@@ -635,8 +794,8 @@ pub mod nn {
                 fn forward(&self, ctx: &Arc<Context>) -> Tensor {
                     let a = &ctx.parents[0];
                     let b = &ctx.parents[1];
-                    let a_data = a.data.lock().unwrap();
-                    let b_data = b.data.lock().unwrap();
+                    let a_data = a.data.lock().unwrap().clone();
+                    let b_data = b.data.lock().unwrap().clone();
 
                     if a.shape == b.shape {
                         let data = a_data
@@ -676,7 +835,7 @@ pub mod nn {
 
                     if a.shape != b.shape {
                         if a.shape.len() > b.shape.len() {
-                            let grad_data = grad.data.lock().unwrap();
+                            let grad_data = grad.data.lock().unwrap().clone();
                             let mut b_grad_data = vec![0.0; b.size()];
                             let cols = b.shape[0];
                             for row in grad_data.chunks(cols) {
@@ -695,15 +854,16 @@ pub mod nn {
             pub struct SubOp;
             impl Op for SubOp {
                 fn forward(&self, ctx: &Arc<Context>) -> Tensor {
-                    let a = ctx.parents[0].data.lock().unwrap();
-                    let b = ctx.parents[1].data.lock().unwrap();
-                    let data = a.par_iter().zip(b.par_iter()).map(|(a, b)| a - b).collect();
+                    let a_data = ctx.parents[0].data.lock().unwrap().clone();
+                    let b_data = ctx.parents[1].data.lock().unwrap().clone();
+                    let data = a_data.par_iter().zip(b_data.par_iter()).map(|(a, b)| a - b).collect();
                     Tensor::new(data, &ctx.parents[0].shape, Some(ctx.clone()))
                 }
 
                 fn backward(&self, _ctx: &Arc<Context>, grad: &Tensor) -> Vec<Tensor> {
+                    let grad_data = grad.data.lock().unwrap().clone();
                     let neg_grad_data: Vec<f64> =
-                        grad.data.lock().unwrap().par_iter().map(|&g| -g).collect();
+                        grad_data.par_iter().map(|&g| -g).collect();
                     vec![grad.clone(), Tensor::from_data(neg_grad_data, &grad.shape)]
                 }
             }
@@ -712,18 +872,18 @@ pub mod nn {
             pub struct MulOp;
             impl Op for MulOp {
                 fn forward(&self, ctx: &Arc<Context>) -> Tensor {
-                    let a = ctx.parents[0].data.lock().unwrap();
-                    let b = ctx.parents[1].data.lock().unwrap();
-                    let data = a.par_iter().zip(b.par_iter()).map(|(a, b)| a * b).collect();
+                    let a_data = ctx.parents[0].data.lock().unwrap().clone();
+                    let b_data = ctx.parents[1].data.lock().unwrap().clone();
+                    let data = a_data.par_iter().zip(b_data.par_iter()).map(|(a, b)| a * b).collect();
                     Tensor::new(data, &ctx.parents[0].shape, Some(ctx.clone()))
                 }
 
                 fn backward(&self, ctx: &Arc<Context>, grad: &Tensor) -> Vec<Tensor> {
                     let a = &ctx.parents[0];
                     let b = &ctx.parents[1];
-                    let grad_data = grad.data.lock().unwrap();
-                    let a_data = a.data.lock().unwrap();
-                    let b_data = b.data.lock().unwrap();
+                    let grad_data = grad.data.lock().unwrap().clone();
+                    let a_data = a.data.lock().unwrap().clone();
+                    let b_data = b.data.lock().unwrap().clone();
                     let grad_a_data: Vec<f64> = b_data
                         .par_iter()
                         .zip(grad_data.par_iter())
@@ -754,11 +914,11 @@ pub mod nn {
                         "MatMul shape mismatch: {:?} vs {:?}",
                         a.shape, b.shape
                     );
-                    let a_data = a.data.lock().unwrap();
-                    let b_data = b.data.lock().unwrap();
+                    let a_data = a.data.lock().unwrap().clone();
+                    let b_data = b.data.lock().unwrap().clone();
                     let (m, k, n) = (a.shape[0], a.shape[1], b.shape[1]);
                     let mut c_data = vec![0.0; m * n];
-                    c_data.par_chunks_mut(n).enumerate().for_each(|(i, row)| {
+                    c_data.chunks_mut(n).enumerate().for_each(|(i, row)| {
                         for j in 0..n {
                             let mut sum = 0.0;
                             for l in 0..k {
@@ -785,15 +945,15 @@ pub mod nn {
             pub struct ReLUOp;
             impl Op for ReLUOp {
                 fn forward(&self, ctx: &Arc<Context>) -> Tensor {
-                    let input_data = ctx.parents[0].data.lock().unwrap();
+                    let input_data = ctx.parents[0].data.lock().unwrap().clone();
                     let result_data: Vec<f64> =
                         input_data.par_iter().map(|&x| x.max(0.0)).collect();
                     Tensor::new(result_data, &ctx.parents[0].shape, Some(ctx.clone()))
                 }
 
                 fn backward(&self, ctx: &Arc<Context>, grad: &Tensor) -> Vec<Tensor> {
-                    let input_data = ctx.parents[0].data.lock().unwrap();
-                    let grad_data = grad.data.lock().unwrap();
+                    let input_data = ctx.parents[0].data.lock().unwrap().clone();
+                    let grad_data = grad.data.lock().unwrap().clone();
                     let result_grad: Vec<f64> = input_data
                         .par_iter()
                         .zip(grad_data.par_iter())
@@ -807,7 +967,7 @@ pub mod nn {
             pub struct SigmoidOp;
             impl Op for SigmoidOp {
                 fn forward(&self, ctx: &Arc<Context>) -> Tensor {
-                    let input_data = ctx.parents[0].data.lock().unwrap();
+                    let input_data = ctx.parents[0].data.lock().unwrap().clone();
                     let result_data: Vec<f64> = input_data
                         .par_iter()
                         .map(|&x| 1.0 / (1.0 + (-x).exp()))
@@ -817,8 +977,8 @@ pub mod nn {
 
                 fn backward(&self, ctx: &Arc<Context>, grad: &Tensor) -> Vec<Tensor> {
                     let fwd_output = self.forward(ctx);
-                    let fwd_data = fwd_output.data.lock().unwrap();
-                    let grad_data = grad.data.lock().unwrap();
+                    let fwd_data = fwd_output.data.lock().unwrap().clone();
+                    let grad_data = grad.data.lock().unwrap().clone();
                     let result_grad: Vec<f64> = fwd_data
                         .par_iter()
                         .zip(grad_data.par_iter())
@@ -832,15 +992,15 @@ pub mod nn {
             pub struct TanhOp;
             impl Op for TanhOp {
                 fn forward(&self, ctx: &Arc<Context>) -> Tensor {
-                    let input_data = ctx.parents[0].data.lock().unwrap();
+                    let input_data = ctx.parents[0].data.lock().unwrap().clone();
                     let result_data: Vec<f64> = input_data.par_iter().map(|&x| x.tanh()).collect();
                     Tensor::new(result_data, &ctx.parents[0].shape, Some(ctx.clone()))
                 }
 
                 fn backward(&self, ctx: &Arc<Context>, grad: &Tensor) -> Vec<Tensor> {
                     let fwd_output = self.forward(ctx);
-                    let y_data = fwd_output.data.lock().unwrap();
-                    let grad_data = grad.data.lock().unwrap();
+                    let y_data = fwd_output.data.lock().unwrap().clone();
+                    let grad_data = grad.data.lock().unwrap().clone();
                     let result_grad: Vec<f64> = y_data
                         .par_iter()
                         .zip(grad_data.par_iter())
@@ -917,13 +1077,13 @@ pub mod nn {
             }
             impl Op for MulScalarOp {
                 fn forward(&self, ctx: &Arc<Context>) -> Tensor {
-                    let input_data = ctx.parents[0].data.lock().unwrap();
+                    let input_data = ctx.parents[0].data.lock().unwrap().clone();
                     let result_data = input_data.par_iter().map(|&x| x * self.scalar).collect();
                     Tensor::new(result_data, &ctx.parents[0].shape, Some(ctx.clone()))
                 }
 
                 fn backward(&self, ctx: &Arc<Context>, grad: &Tensor) -> Vec<Tensor> {
-                    let grad_data = grad.data.lock().unwrap();
+                    let grad_data = grad.data.lock().unwrap().clone();
                     let result_grad = grad_data.par_iter().map(|&g| g * self.scalar).collect();
                     vec![Tensor::from_data(result_grad, &ctx.parents[0].shape)]
                 }
@@ -982,7 +1142,7 @@ pub mod nn {
             pub struct GeluOp;
             impl Op for GeluOp {
                 fn forward(&self, ctx: &Arc<Context>) -> Tensor {
-                    let input_data = ctx.parents[0].data.lock().unwrap();
+                    let input_data = ctx.parents[0].data.lock().unwrap().clone();
                     let output_data = input_data
                         .par_iter()
                         .map(|&x| {
@@ -993,8 +1153,8 @@ pub mod nn {
                 }
 
                 fn backward(&self, ctx: &Arc<Context>, grad: &Tensor) -> Vec<Tensor> {
-                    let input_data = ctx.parents[0].data.lock().unwrap();
-                    let grad_data = grad.data.lock().unwrap();
+                    let input_data = ctx.parents[0].data.lock().unwrap().clone();
+                    let grad_data = grad.data.lock().unwrap().clone();
                     let input_grad = input_data
                         .par_iter()
                         .zip(grad_data.par_iter())
@@ -1366,11 +1526,13 @@ pub mod nn {
         #[derive(Deserialize, Debug)]
         pub enum LossType {
             MSE,
+            CrossEntropy,
         }
 
         pub fn create_loss(loss_type: LossType) -> Box<dyn Loss> {
             match loss_type {
                 LossType::MSE => Box::new(MSE),
+                LossType::CrossEntropy => Box::new(CrossEntropy),
             }
         }
 
@@ -1385,6 +1547,28 @@ pub mod nn {
                 let sq_error = diff.clone() * diff;
                 let sum_sq_error = sq_error.sum();
                 sum_sq_error.mul_scalar(1.0 / n)
+            }
+        }
+
+        pub struct CrossEntropy;
+        impl Loss for CrossEntropy {
+            fn forward(&self, y_true: &Tensor, y_pred: &Tensor) -> Tensor {
+                let n = y_true.size() as f64;
+                if n == 0.0 {
+                    return Tensor::from_data(vec![0.0], &[1]);
+                }
+                
+                let y_true_data = y_true.data.lock().unwrap();
+                let y_pred_data = y_pred.data.lock().unwrap();
+                
+                let mut loss = 0.0;
+                for (true_val, pred_val) in y_true_data.iter().zip(y_pred_data.iter()) {
+                    // Add small epsilon to prevent log(0)
+                    let pred_clipped = pred_val.max(1e-15).min(1.0 - 1e-15);
+                    loss -= true_val * pred_clipped.ln();
+                }
+                
+                Tensor::from_data(vec![loss / n], &[1])
             }
         }
     }
@@ -1510,8 +1694,98 @@ pub mod nn {
 
     pub mod training {
         use super::{loss::Loss, optimizers::Optimizer, AiModel, Tensor};
+        use serde::Serialize;
 
-        pub fn train(
+        #[derive(Serialize, Debug)]
+        pub struct TrainingMetrics {
+            pub epoch: usize,
+            pub loss: f64,
+            pub accuracy: f64,
+            pub learning_rate: f64,
+            pub batch_loss: f64,
+            pub gradient_norm: f64,
+            pub param_norm: f64,
+        }
+
+        #[derive(Serialize, Debug)]
+        pub struct TrainingProgress {
+            pub metrics: Vec<TrainingMetrics>,
+            pub total_epochs: usize,
+            pub current_epoch: usize,
+            pub is_complete: bool,
+        }
+
+        pub fn calculate_accuracy(y_true: &Tensor, y_pred: &Tensor) -> f64 {
+            let y_true_data = y_true.data.lock().unwrap();
+            let y_pred_data = y_pred.data.lock().unwrap();
+            
+            if y_true_data.len() != y_pred_data.len() {
+                return 0.0;
+            }
+            
+            let mut correct = 0.0;
+            let total = y_true_data.len() as f64;
+            
+            // For classification tasks, find the index with maximum value
+            if y_true.shape.len() > 1 && y_true.shape[1] > 1 {
+                // Multi-class classification
+                let batch_size = y_true.shape[0];
+                let num_classes = y_true.shape[1];
+                
+                for i in 0..batch_size {
+                    let start_idx = i * num_classes;
+                    let true_slice = &y_true_data[start_idx..start_idx + num_classes];
+                    let pred_slice = &y_pred_data[start_idx..start_idx + num_classes];
+                    
+                    let true_max_idx = true_slice.iter().enumerate()
+                        .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+                        .map(|(idx, _)| idx).unwrap_or(0);
+                    
+                    let pred_max_idx = pred_slice.iter().enumerate()
+                        .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+                        .map(|(idx, _)| idx).unwrap_or(0);
+                    
+                    if true_max_idx == pred_max_idx {
+                        correct += 1.0;
+                    }
+                }
+            } else {
+                // Regression or binary classification
+                for (true_val, pred_val) in y_true_data.iter().zip(y_pred_data.iter()) {
+                    if (true_val - pred_val).abs() < 0.5 {
+                        correct += 1.0;
+                    }
+                }
+            }
+            
+            correct / total
+        }
+
+        pub fn calculate_gradient_norm(model: &dyn AiModel) -> f64 {
+            let mut total_norm = 0.0;
+            for param in model.get_params() {
+                if let Some(grad) = param.grad.lock().unwrap().as_ref() {
+                    let grad_data = grad.data.lock().unwrap();
+                    for &val in grad_data.iter() {
+                        total_norm += val * val;
+                    }
+                }
+            }
+            total_norm.sqrt()
+        }
+
+        pub fn calculate_param_norm(model: &dyn AiModel) -> f64 {
+            let mut total_norm = 0.0;
+            for param in model.get_params() {
+                let param_data = param.data.lock().unwrap();
+                for &val in param_data.iter() {
+                    total_norm += val * val;
+                }
+            }
+            total_norm.sqrt()
+        }
+
+        pub fn train_with_callback<F>(
             model: &mut dyn AiModel,
             x: Tensor,
             y: Tensor,
@@ -1519,16 +1793,28 @@ pub mod nn {
             batch_size: usize,
             optimizer: &mut dyn Optimizer,
             loss_fn: &dyn Loss,
-        ) -> Vec<f64> {
-            let mut loss_history = Vec::new();
+            mut callback: F,
+        ) -> TrainingProgress
+        where
+            F: FnMut(&TrainingMetrics) -> Option<axum::response::sse::Event>,
+        {
+            let mut metrics = Vec::new();
             let num_samples = x.shape[0];
             if num_samples == 0 {
-                return loss_history;
+                return TrainingProgress {
+                    metrics,
+                    total_epochs: epochs,
+                    current_epoch: 0,
+                    is_complete: true,
+                };
             }
             let num_batches = (num_samples as f64 / batch_size as f64).ceil() as usize;
 
             for epoch in 0..epochs {
                 let mut epoch_loss = 0.0;
+                let mut epoch_accuracy = 0.0;
+                let mut batch_losses = Vec::new();
+
                 for i in 0..num_batches {
                     let start = i * batch_size;
                     let end = (start + batch_size).min(num_samples);
@@ -1559,19 +1845,164 @@ pub mod nn {
                     optimizer.step(model);
 
                     let loss_val = loss_tensor.data.lock().unwrap()[0];
+                    let accuracy = calculate_accuracy(&y_batch, &y_pred);
+                    
                     epoch_loss += loss_val;
+                    epoch_accuracy += accuracy;
+                    batch_losses.push(loss_val);
                 }
+
                 let avg_loss = if num_batches > 0 {
                     epoch_loss / num_batches as f64
                 } else {
                     0.0
                 };
-                loss_history.push(avg_loss);
+                
+                let avg_accuracy = if num_batches > 0 {
+                    epoch_accuracy / num_batches as f64
+                } else {
+                    0.0
+                };
+
+                let gradient_norm = calculate_gradient_norm(model);
+                let param_norm = calculate_param_norm(model);
+                let batch_loss = batch_losses.iter().sum::<f64>() / batch_losses.len() as f64;
+
+                let metric = TrainingMetrics {
+                    epoch: epoch + 1,
+                    loss: avg_loss,
+                    accuracy: avg_accuracy,
+                    learning_rate: 0.001,
+                    batch_loss,
+                    gradient_norm,
+                    param_norm,
+                };
+
+                // Call the callback with the metric
+                callback(&metric);
+                metrics.push(metric);
+
                 if (epoch + 1) % 10 == 0 || epoch == 0 || epoch == epochs - 1 {
-                    tracing::info!("Epoch {}/{}, Loss: {:.6}", epoch + 1, epochs, avg_loss);
+                    tracing::info!(
+                        "Epoch {}/{}, Loss: {:.6}, Accuracy: {:.4}, Grad Norm: {:.6}, Param Norm: {:.6}",
+                        epoch + 1, epochs, avg_loss, avg_accuracy, gradient_norm, param_norm
+                    );
                 }
             }
-            loss_history
+
+            TrainingProgress {
+                metrics,
+                total_epochs: epochs,
+                current_epoch: epochs,
+                is_complete: true,
+            }
+        }
+
+        pub fn train(
+            model: &mut dyn AiModel,
+            x: Tensor,
+            y: Tensor,
+            epochs: usize,
+            batch_size: usize,
+            optimizer: &mut dyn Optimizer,
+            loss_fn: &dyn Loss,
+        ) -> TrainingProgress {
+            let mut metrics = Vec::new();
+            let num_samples = x.shape[0];
+            if num_samples == 0 {
+                return TrainingProgress {
+                    metrics,
+                    total_epochs: epochs,
+                    current_epoch: 0,
+                    is_complete: true,
+                };
+            }
+            let num_batches = (num_samples as f64 / batch_size as f64).ceil() as usize;
+
+            for epoch in 0..epochs {
+                let mut epoch_loss = 0.0;
+                let mut epoch_accuracy = 0.0;
+                let mut batch_losses = Vec::new();
+
+                for i in 0..num_batches {
+                    let start = i * batch_size;
+                    let end = (start + batch_size).min(num_samples);
+                    if start >= end {
+                        continue;
+                    }
+
+                    let x_batch_len: usize = x.shape[1..].iter().product();
+                    let y_batch_len: usize = y.shape[1..].iter().product();
+                    let mut x_batch_shape = x.shape.clone();
+                    x_batch_shape[0] = end - start;
+                    let mut y_batch_shape = y.shape.clone();
+                    y_batch_shape[0] = end - start;
+
+                    let x_data = x.data.lock().unwrap();
+                    let y_data = y.data.lock().unwrap();
+
+                    let x_batch_data = x_data[start * x_batch_len..end * x_batch_len].to_vec();
+                    let y_batch_data = y_data[start * y_batch_len..end * y_batch_len].to_vec();
+                    let x_batch = Tensor::from_data(x_batch_data, &x_batch_shape);
+                    let y_batch = Tensor::from_data(y_batch_data, &y_batch_shape);
+
+                    optimizer.zero_grad(model);
+                    let y_pred = model.forward(&x_batch);
+                    let loss_tensor = loss_fn.forward(&y_batch, &y_pred);
+
+                    loss_tensor.backward();
+                    optimizer.step(model);
+
+                    let loss_val = loss_tensor.data.lock().unwrap()[0];
+                    let accuracy = calculate_accuracy(&y_batch, &y_pred);
+                    
+                    epoch_loss += loss_val;
+                    epoch_accuracy += accuracy;
+                    batch_losses.push(loss_val);
+                }
+
+                let avg_loss = if num_batches > 0 {
+                    epoch_loss / num_batches as f64
+                } else {
+                    0.0
+                };
+                
+                let avg_accuracy = if num_batches > 0 {
+                    epoch_accuracy / num_batches as f64
+                } else {
+                    0.0
+                };
+
+                let gradient_norm = calculate_gradient_norm(model);
+                let param_norm = calculate_param_norm(model);
+                let batch_loss = batch_losses.iter().sum::<f64>() / batch_losses.len() as f64;
+
+                let metric = TrainingMetrics {
+                    epoch: epoch + 1,
+                    loss: avg_loss,
+                    accuracy: avg_accuracy,
+                    learning_rate: 0.001, // This should be extracted from optimizer
+                    batch_loss,
+                    gradient_norm,
+                    param_norm,
+                };
+
+                metrics.push(metric);
+
+                if (epoch + 1) % 10 == 0 || epoch == 0 || epoch == epochs - 1 {
+                    tracing::info!(
+                        "Epoch {}/{}, Loss: {:.6}, Accuracy: {:.4}, Grad Norm: {:.6}, Param Norm: {:.6}",
+                        epoch + 1, epochs, avg_loss, avg_accuracy, gradient_norm, param_norm
+                    );
+                }
+            }
+
+            TrainingProgress {
+                metrics,
+                total_epochs: epochs,
+                current_epoch: epochs,
+                is_complete: true,
+            }
         }
     }
 }

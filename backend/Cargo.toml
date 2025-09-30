@@ -19,3 +19,6 @@ tower-http = { version = "0.5", features = ["cors", "trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tower = "0.4"
+futures = "0.3"
+tokio-stream = "0.1"
+async-stream = "0.3"
