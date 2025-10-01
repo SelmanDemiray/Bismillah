@@ -111,7 +111,7 @@ mod api {
             .layer(TraceLayer::new_for_http())
             .with_state(state);
 
-        let addr: std::net::SocketAddr = "0.0.0.0:8080".parse().unwrap();
+        let addr: std::net::SocketAddr = "0.0.0.0:55320".parse().unwrap();
         tracing::info!("🚀 Upgraded Neural Network Backend listening on http://{}", addr);
         let listener = TcpListener::bind(addr).await.unwrap();
         axum::serve(listener, app).await.unwrap();

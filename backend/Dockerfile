@@ -12,6 +12,6 @@ COPY src ./src
 
 RUN touch src/main.rs && cargo build --release
 
-EXPOSE 8080
+EXPOSE 55320
 
 CMD ["./target/release/backend"]

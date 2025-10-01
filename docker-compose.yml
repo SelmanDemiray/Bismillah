@@ -2,14 +2,15 @@ services:
   backend:
     build: ./backend
     ports:
-      - "8080:8080"
+      - "55320:55320"
 
   frontend:
     image: nginx:alpine
     ports:
-      - "80:80"
+      - "55321:55321"
     volumes:
       - ./frontend:/usr/share/nginx/html
+      - ./frontend/nginx.conf:/etc/nginx/conf.d/default.conf
     # This simplified 'depends_on' just waits for the backend 
     # container to be created, which is sufficient.
     depends_on:
