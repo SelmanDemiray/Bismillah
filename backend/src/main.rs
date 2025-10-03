@@ -1,9 +1,10 @@
 use axum::{
-    extract::{Path, State},
-    http::{StatusCode, Method},
-    response::{Json, sse::{Event, Sse}},
+    extract::{Path, State, Multipart, Query, WebSocketUpgrade, ws::{WebSocket, Message}},
+    http::{StatusCode, Method, header},
+    response::{Json, sse::{Event, Sse}, IntoResponse, Response},
     routing::{get, post},
     Router,
+    middleware,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -19,6 +20,11 @@ use uuid::Uuid;
 use tower_http::cors::{CorsLayer, Any};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use sqlx::{SqlitePool, Row};
+use std::str::FromStr;
+use chrono::{DateTime, Utc};
+use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey};
+use bcrypt::{hash, verify, DEFAULT_COST};
 
 // ============================================================================
 // API LAYER
@@ -36,6 +42,8 @@ mod api {
     #[derive(Clone)]
     pub struct AppState {
         pub models: Arc<Mutex<HashMap<String, Box<dyn AiModel>>>>,
+        pub db: SqlitePool,
+        pub tx: tokio::sync::broadcast::Sender<chat::ChatMessage>,
     }
 
     #[derive(Deserialize, Debug)]
@@ -89,26 +97,65 @@ mod api {
             .with(tracing_subscriber::fmt::layer())
             .init();
 
+        // Initialize database
+        let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:/usr/src/app/data/chat.db".to_string());
+        
+        // Create directory if it doesn't exist (for SQLite file)
+        if let Some(db_path) = database_url.strip_prefix("sqlite:") {
+            if let Some(dir) = std::path::Path::new(db_path).parent() {
+                tokio::fs::create_dir_all(dir).await.expect("Failed to create database directory");
+            }
+        }
+        
+        let db_pool = SqlitePool::connect_with(
+            sqlx::sqlite::SqliteConnectOptions::from_str(&database_url)
+                .expect("Invalid database URL")
+                .create_if_missing(true)
+        ).await.expect("Failed to connect to database");
+        
+        // Run migrations
+        chat::init_database(&db_pool).await.expect("Failed to initialize database");
+        auth::init_auth_tables(&db_pool).await.expect("Failed to initialize auth tables");
+
+        let models = Arc::new(Mutex::new(HashMap::new()));
+        let (tx, _rx) = tokio::sync::broadcast::channel(100);
+
         let state = AppState {
-            models: Arc::new(Mutex::new(HashMap::new())),
+            models,
+            db: db_pool,
+            tx,
         };
 
         let cors = CorsLayer::new()
             .allow_origin(Any)
-            .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+            .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::OPTIONS])
             .allow_headers(Any);
 
         let app = Router::new()
-            .route("/models", post(create_model).get(list_models))
+            // Existing neural network routes
+            .route("/models", post(create_model).get(list_models).delete(clear_all_models))
             .route("/models/import", post(import_model))
-            .route("/models/:model_id", get(get_model_details))
+            .route("/models/:model_id", get(get_model_details).delete(delete_model))
+            .route("/models/:model_id/metadata", get(get_model_metadata))
             .route("/models/:model_id/train", post(train_model))
             .route("/models/:model_id/train-stream", post(train_model_stream))
             .route("/models/:model_id/predict", post(predict))
             .route("/models/:model_id/export", get(export_model))
             .route("/health", get(health_check))
+            // Authentication routes
+            .route("/auth/register", post(auth::register))
+            .route("/auth/login", post(auth::login))
+            .route("/auth/user", get(auth::get_current_user))
+            .route("/auth/profile", get(auth::get_profile).put(auth::update_profile))
+            // Chat system routes
+            .route("/chat/conversations", post(chat::create_conversation).get(chat::list_conversations))
+            .route("/chat/conversations/:conversation_id/messages", get(chat::get_conversation_messages).post(chat::send_message))
+            .route("/chat/ws", get(chat::websocket_handler))
+            .route("/chat/upload", post(chat::upload_file))
+            .route("/files/:file_id", get(chat::serve_file))
             .layer(cors)
             .layer(TraceLayer::new_for_http())
+            .layer(middleware::from_fn(security_headers))
             .with_state(state);
 
         let addr: std::net::SocketAddr = "0.0.0.0:55320".parse().unwrap();
@@ -123,6 +170,100 @@ mod api {
             message: "Backend is healthy".into(),
             data: None,
         })
+    }
+
+    async fn security_headers(
+        request: axum::extract::Request,
+        next: axum::middleware::Next,
+    ) -> axum::response::Response {
+        let mut response = next.run(request).await;
+        
+        let headers = response.headers_mut();
+        
+        // Security headers
+        headers.insert("X-Content-Type-Options", "nosniff".parse().unwrap());
+        headers.insert("X-Frame-Options", "DENY".parse().unwrap());
+        headers.insert("X-XSS-Protection", "1; mode=block".parse().unwrap());
+        headers.insert("Referrer-Policy", "strict-origin-when-cross-origin".parse().unwrap());
+        headers.insert("Permissions-Policy", "geolocation=(), microphone=(), camera=()".parse().unwrap());
+        
+        // Content Security Policy
+        let csp = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' ws: wss:; font-src 'self' data:;";
+        headers.insert("Content-Security-Policy", csp.parse().unwrap());
+        
+        response
+    }
+
+    // Input validation and sanitization
+    fn sanitize_string(input: &str) -> String {
+        input
+            .chars()
+            .filter(|c| !c.is_control() || *c == '\n' || *c == '\r' || *c == '\t')
+            .collect::<String>()
+            .trim()
+            .to_string()
+    }
+
+    pub fn validate_username(username: &str) -> Result<String, String> {
+        let sanitized = sanitize_string(username);
+        
+        if sanitized.len() < 3 {
+            return Err("Username must be at least 3 characters long".to_string());
+        }
+        
+        if sanitized.len() > 50 {
+            return Err("Username must be less than 50 characters long".to_string());
+        }
+        
+        if !sanitized.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
+            return Err("Username can only contain alphanumeric characters, underscores, and hyphens".to_string());
+        }
+        
+        Ok(sanitized)
+    }
+
+    pub fn validate_email(email: &str) -> Result<String, String> {
+        let sanitized = sanitize_string(email);
+        
+        if sanitized.len() > 254 {
+            return Err("Email must be less than 254 characters long".to_string());
+        }
+        
+        if !sanitized.contains('@') || sanitized.matches('@').count() != 1 {
+            return Err("Invalid email format".to_string());
+        }
+        
+        let parts: Vec<&str> = sanitized.split('@').collect();
+        if parts[0].is_empty() || parts[1].is_empty() {
+            return Err("Invalid email format".to_string());
+        }
+        
+        if !parts[1].contains('.') {
+            return Err("Invalid email format".to_string());
+        }
+        
+        Ok(sanitized)
+    }
+
+    pub fn validate_password(password: &str) -> Result<String, String> {
+        if password.len() < 8 {
+            return Err("Password must be at least 8 characters long".to_string());
+        }
+        
+        if password.len() > 128 {
+            return Err("Password must be less than 128 characters long".to_string());
+        }
+        
+        // Check for at least one uppercase, one lowercase, and one digit
+        let has_upper = password.chars().any(|c| c.is_uppercase());
+        let has_lower = password.chars().any(|c| c.is_lowercase());
+        let has_digit = password.chars().any(|c| c.is_ascii_digit());
+        
+        if !has_upper || !has_lower || !has_digit {
+            return Err("Password must contain at least one uppercase letter, one lowercase letter, and one digit".to_string());
+        }
+        
+        Ok(password.to_string())
     }
 
     async fn create_model(
@@ -265,6 +406,83 @@ mod api {
             status: "success".into(),
             message: "Model details retrieved".into(),
             data: Some(serde_json::json!({ "architecture": model.to_value() })),
+        }))
+    }
+
+    async fn get_model_metadata(
+        State(state): State<AppState>,
+        Path(model_id): Path<String>,
+    ) -> Result<Json<ApiResponse>, (StatusCode, Json<ApiResponse>)> {
+        let models = state.models.lock().unwrap();
+        let model = models.get(&model_id).ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ApiResponse {
+                    status: "error".into(),
+                    message: "Model not found".into(),
+                    data: None,
+                }),
+            )
+        })?;
+
+        let architecture = model.to_value();
+        let empty_map = serde_json::Map::new();
+        let nodes = architecture.get("nodes").and_then(|n| n.as_object()).unwrap_or(&empty_map);
+        
+        // Calculate model statistics
+        let total_layers = nodes.len();
+        let layer_types: std::collections::HashMap<String, usize> = nodes
+            .values()
+            .filter_map(|node| node.get("op").and_then(|op| op.as_str()))
+            .fold(std::collections::HashMap::new(), |mut acc, op_type| {
+                *acc.entry(op_type.to_string()).or_insert(0) += 1;
+                acc
+            });
+
+        let has_linear = layer_types.contains_key("Linear");
+        let has_activation = layer_types.iter().any(|(k, _)| 
+            ["ReLU", "Gelu", "Sigmoid", "Tanh", "Softmax"].contains(&k.as_str())
+        );
+        let has_normalization = layer_types.contains_key("LayerNorm");
+
+        let model_type = if has_linear && has_activation {
+            "Neural Network"
+        } else if has_linear {
+            "Linear Model"
+        } else if has_activation {
+            "Activation Model"
+        } else {
+            "Unknown"
+        };
+
+        let total_params = model.get_named_params().values()
+            .map(|tensor| tensor.size())
+            .sum::<usize>();
+
+        let metadata = serde_json::json!({
+            "model_id": model_id,
+            "model_type": model_type,
+            "total_layers": total_layers,
+            "total_parameters": total_params,
+            "layer_types": layer_types,
+            "capabilities": {
+                "has_linear": has_linear,
+                "has_activation": has_activation,
+                "has_normalization": has_normalization,
+                "is_classifier": has_linear && has_activation,
+                "is_regressor": has_linear && !has_activation
+            },
+            "architecture_summary": {
+                "input_nodes": architecture.get("inputs").and_then(|i| i.as_array()).map(|a| a.len()).unwrap_or(0),
+                "output_nodes": architecture.get("output_node").map(|_| 1).unwrap_or(0),
+                "hidden_layers": total_layers.saturating_sub(2)
+            }
+        });
+
+        Ok(Json(ApiResponse {
+            status: "success".into(),
+            message: "Model metadata retrieved".into(),
+            data: Some(metadata),
         }))
     }
 
@@ -597,6 +815,1155 @@ mod api {
                 )
             }
         }
+    }
+
+    async fn clear_all_models(State(state): State<AppState>) -> (StatusCode, Json<ApiResponse>) {
+        let mut models = state.models.lock().unwrap();
+        let count = models.len();
+        models.clear();
+        
+        tracing::info!("🗑️ Cleared {} models from memory", count);
+        (
+            StatusCode::OK,
+            Json(ApiResponse {
+                status: "success".into(),
+                message: format!("Cleared {} models from memory", count),
+                data: Some(serde_json::json!({ "cleared_count": count })),
+            }),
+        )
+    }
+
+    async fn delete_model(
+        State(state): State<AppState>,
+        Path(model_id): Path<String>,
+    ) -> (StatusCode, Json<ApiResponse>) {
+        let mut models = state.models.lock().unwrap();
+        let removed = models.remove(&model_id);
+        
+        if removed.is_some() {
+            tracing::info!("🗑️ Deleted model: {}", &model_id[..8]);
+            (
+                StatusCode::OK,
+                Json(ApiResponse {
+                    status: "success".into(),
+                    message: "Model deleted successfully".into(),
+                    data: Some(serde_json::json!({ "deleted_model_id": model_id })),
+                }),
+            )
+        } else {
+            tracing::warn!("❌ Model not found for deletion: {}", &model_id[..8]);
+            (
+                StatusCode::NOT_FOUND,
+                Json(ApiResponse {
+                    status: "error".into(),
+                    message: "Model not found".into(),
+                    data: None,
+                }),
+            )
+        }
+    }
+}
+
+// ============================================================================
+// CHAT SYSTEM
+// ============================================================================
+
+mod chat {
+    use super::*;
+    use futures::{SinkExt, StreamExt};
+
+    pub type ChatState = api::AppState;
+
+    #[derive(Serialize, Deserialize, Debug, Clone)]
+    pub struct Conversation {
+        pub id: String,
+        pub title: String,
+        pub created_at: DateTime<Utc>,
+        pub updated_at: DateTime<Utc>,
+        pub user_id: Option<String>,
+        pub metadata: Option<Value>,
+    }
+
+    #[derive(Serialize, Deserialize, Debug, Clone)]
+    pub struct ChatMessage {
+        pub id: String,
+        pub conversation_id: String,
+        pub role: MessageRole,
+        pub content: MessageContent,
+        pub created_at: DateTime<Utc>,
+        pub metadata: Option<Value>,
+    }
+
+    #[derive(Serialize, Deserialize, Debug, Clone)]
+    #[serde(rename_all = "lowercase")]
+    pub enum MessageRole {
+        User,
+        Assistant,
+        System,
+    }
+
+    #[derive(Serialize, Deserialize, Debug, Clone)]
+    #[serde(tag = "type", content = "data")]
+    pub enum MessageContent {
+        Text(String),
+        Image { url: String, caption: Option<String> },
+        Video { url: String, caption: Option<String> },
+        Audio { url: String, duration: Option<f64> },
+        Document { url: String, filename: String, mime_type: String },
+        Mixed(Vec<MessageContent>),
+    }
+
+    #[derive(Serialize, Deserialize, Debug)]
+    pub struct CreateConversationRequest {
+        pub title: Option<String>,
+        pub metadata: Option<Value>,
+    }
+
+    #[derive(Serialize, Deserialize, Debug)]
+    pub struct SendMessageRequest {
+        pub content: MessageContent,
+        pub model_id: Option<String>,
+        pub stream: Option<bool>,
+    }
+
+    #[derive(Serialize, Deserialize, Debug)]
+    pub struct ConversationListQuery {
+        pub limit: Option<i64>,
+        pub offset: Option<i64>,
+        pub search: Option<String>,
+    }
+
+    pub async fn init_database(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+        // Create conversations table
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS conversations (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                user_id TEXT,
+                metadata TEXT
+            )
+            "#,
+        )
+        .execute(pool)
+        .await?;
+
+        // Create messages table
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS messages (
+                id TEXT PRIMARY KEY,
+                conversation_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                metadata TEXT,
+                FOREIGN KEY (conversation_id) REFERENCES conversations (id)
+            )
+            "#,
+        )
+        .execute(pool)
+        .await?;
+
+        // Create files table
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS files (
+                id TEXT PRIMARY KEY,
+                filename TEXT NOT NULL,
+                original_filename TEXT NOT NULL,
+                mime_type TEXT NOT NULL,
+                size_bytes INTEGER NOT NULL,
+                path TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                metadata TEXT
+            )
+            "#,
+        )
+        .execute(pool)
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn create_conversation(
+        State(state): State<ChatState>,
+        Json(payload): Json<CreateConversationRequest>,
+    ) -> Result<Json<Conversation>, (StatusCode, Json<Value>)> {
+        let conversation_id = Uuid::new_v4().to_string();
+        let now = Utc::now();
+        let title = payload.title.unwrap_or_else(|| "New Conversation".to_string());
+
+        let conversation = Conversation {
+            id: conversation_id.clone(),
+            title: title.clone(),
+            created_at: now,
+            updated_at: now,
+            user_id: None, // TODO: Get from auth
+            metadata: payload.metadata,
+        };
+
+        let metadata_json = conversation.metadata
+            .as_ref()
+            .map(|m| serde_json::to_string(m).unwrap_or_default())
+            .unwrap_or_default();
+
+        sqlx::query(
+            r#"
+            INSERT INTO conversations (id, title, created_at, updated_at, user_id, metadata)
+            VALUES (?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(&conversation_id)
+        .bind(&title)
+        .bind(now.to_rfc3339())
+        .bind(now.to_rfc3339())
+        .bind(&conversation.user_id)
+        .bind(&metadata_json)
+        .execute(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Database error: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Failed to create conversation" })),
+            )
+        })?;
+
+        tracing::info!("Created conversation: {}", &conversation_id[..8]);
+        Ok(Json(conversation))
+    }
+
+    pub async fn list_conversations(
+        State(state): State<ChatState>,
+        Query(query): Query<ConversationListQuery>,
+    ) -> Result<Json<Vec<Conversation>>, (StatusCode, Json<Value>)> {
+        let limit = query.limit.unwrap_or(50).min(100);
+        let offset = query.offset.unwrap_or(0);
+
+        let mut sql = "SELECT id, title, created_at, updated_at, user_id, metadata FROM conversations".to_string();
+        let mut params = Vec::new();
+
+        if let Some(search) = &query.search {
+            sql.push_str(" WHERE title LIKE ?");
+            params.push(format!("%{}%", search));
+        }
+
+        sql.push_str(" ORDER BY updated_at DESC LIMIT ? OFFSET ?");
+
+        let mut query_builder = sqlx::query(&sql);
+        for param in params {
+            query_builder = query_builder.bind(param);
+        }
+        query_builder = query_builder.bind(limit).bind(offset);
+
+        let rows = query_builder.fetch_all(&state.db).await.map_err(|e| {
+            tracing::error!("Database error: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Failed to fetch conversations" })),
+            )
+        })?;
+
+        let conversations: Vec<Conversation> = rows
+            .into_iter()
+            .map(|row| {
+                let metadata_str: String = row.get("metadata");
+                let metadata = if metadata_str.is_empty() {
+                    None
+                } else {
+                    serde_json::from_str(&metadata_str).ok()
+                };
+
+                Conversation {
+                    id: row.get("id"),
+                    title: row.get("title"),
+                    created_at: DateTime::parse_from_rfc3339(&row.get::<String, _>("created_at"))
+                        .unwrap()
+                        .with_timezone(&Utc),
+                    updated_at: DateTime::parse_from_rfc3339(&row.get::<String, _>("updated_at"))
+                        .unwrap()
+                        .with_timezone(&Utc),
+                    user_id: row.get("user_id"),
+                    metadata,
+                }
+            })
+            .collect();
+
+        Ok(Json(conversations))
+    }
+
+    pub async fn get_conversation_messages(
+        State(state): State<ChatState>,
+        Path(conversation_id): Path<String>,
+        Query(query): Query<ConversationListQuery>,
+    ) -> Result<Json<Vec<ChatMessage>>, (StatusCode, Json<Value>)> {
+        let limit = query.limit.unwrap_or(100).min(500);
+        let offset = query.offset.unwrap_or(0);
+
+        let rows = sqlx::query(
+            r#"
+            SELECT id, conversation_id, role, content, created_at, metadata 
+            FROM messages 
+            WHERE conversation_id = ? 
+            ORDER BY created_at ASC 
+            LIMIT ? OFFSET ?
+            "#,
+        )
+        .bind(&conversation_id)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Database error: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Failed to fetch messages" })),
+            )
+        })?;
+
+        let messages: Vec<ChatMessage> = rows
+            .into_iter()
+            .map(|row| {
+                let content_str: String = row.get("content");
+                let content: MessageContent = serde_json::from_str(&content_str)
+                    .unwrap_or(MessageContent::Text("Error parsing message".to_string()));
+
+                let metadata_str: String = row.get("metadata");
+                let metadata = if metadata_str.is_empty() {
+                    None
+                } else {
+                    serde_json::from_str(&metadata_str).ok()
+                };
+
+                ChatMessage {
+                    id: row.get("id"),
+                    conversation_id: row.get("conversation_id"),
+                    role: match row.get::<String, _>("role").as_str() {
+                        "user" => MessageRole::User,
+                        "assistant" => MessageRole::Assistant,
+                        "system" => MessageRole::System,
+                        _ => MessageRole::User,
+                    },
+                    content,
+                    created_at: DateTime::parse_from_rfc3339(&row.get::<String, _>("created_at"))
+                        .unwrap()
+                        .with_timezone(&Utc),
+                    metadata,
+                }
+            })
+            .collect();
+
+        Ok(Json(messages))
+    }
+
+    pub async fn send_message(
+        State(state): State<ChatState>,
+        Path(conversation_id): Path<String>,
+        Json(payload): Json<SendMessageRequest>,
+    ) -> Result<Json<ChatMessage>, (StatusCode, Json<Value>)> {
+        // Verify conversation exists
+        let conversation_exists = sqlx::query("SELECT 1 FROM conversations WHERE id = ?")
+            .bind(&conversation_id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| {
+                tracing::error!("Database error: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": "Database error" })),
+                )
+            })?
+            .is_some();
+
+        if !conversation_exists {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "Conversation not found" })),
+            ));
+        }
+
+        // Save user message
+        let user_message_id = Uuid::new_v4().to_string();
+        let now = Utc::now();
+
+        let user_message = ChatMessage {
+            id: user_message_id.clone(),
+            conversation_id: conversation_id.clone(),
+            role: MessageRole::User,
+            content: payload.content.clone(),
+            created_at: now,
+            metadata: None,
+        };
+
+        let content_json = serde_json::to_string(&payload.content).unwrap();
+
+        sqlx::query(
+            r#"
+            INSERT INTO messages (id, conversation_id, role, content, created_at, metadata)
+            VALUES (?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(&user_message_id)
+        .bind(&conversation_id)
+        .bind("user")
+        .bind(&content_json)
+        .bind(now.to_rfc3339())
+        .bind("")
+        .execute(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Database error: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Failed to save message" })),
+            )
+        })?;
+
+        // Update conversation timestamp
+        sqlx::query("UPDATE conversations SET updated_at = ? WHERE id = ?")
+            .bind(now.to_rfc3339())
+            .bind(&conversation_id)
+            .execute(&state.db)
+            .await
+            .map_err(|e| {
+                tracing::error!("Database error: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": "Failed to update conversation" })),
+                )
+            })?;
+
+        // Broadcast message to WebSocket clients
+        let _ = state.tx.send(user_message.clone());
+
+        // Generate AI response
+        tokio::spawn(generate_ai_response(
+            state.clone(),
+            conversation_id,
+            payload.content,
+            payload.model_id,
+        ));
+
+        Ok(Json(user_message))
+    }
+
+    async fn generate_ai_response(
+        state: ChatState,
+        conversation_id: String,
+        user_content: MessageContent,
+        model_id: Option<String>,
+    ) {
+        let response_content = match route_to_model(&state, &user_content, model_id) {
+            Ok(content) => content,
+            Err(e) => {
+                tracing::error!("Model routing error: {}", e);
+                MessageContent::Text("I'm sorry, I encountered an error processing your request.".to_string())
+            }
+        };
+
+        // Save AI response
+        let ai_message_id = Uuid::new_v4().to_string();
+        let now = Utc::now();
+
+        let ai_message = ChatMessage {
+            id: ai_message_id.clone(),
+            conversation_id: conversation_id.clone(),
+            role: MessageRole::Assistant,
+            content: response_content,
+            created_at: now,
+            metadata: None,
+        };
+
+        let content_json = serde_json::to_string(&ai_message.content).unwrap();
+
+        if let Err(e) = sqlx::query(
+            r#"
+            INSERT INTO messages (id, conversation_id, role, content, created_at, metadata)
+            VALUES (?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(&ai_message_id)
+        .bind(&conversation_id)
+        .bind("assistant")
+        .bind(&content_json)
+        .bind(now.to_rfc3339())
+        .bind("")
+        .execute(&state.db)
+        .await
+        {
+            tracing::error!("Failed to save AI response: {}", e);
+            return;
+        }
+
+        // Update conversation timestamp
+        let _ = sqlx::query("UPDATE conversations SET updated_at = ? WHERE id = ?")
+            .bind(now.to_rfc3339())
+            .bind(&conversation_id)
+            .execute(&state.db)
+            .await;
+
+        // Broadcast AI response
+        let _ = state.tx.send(ai_message);
+    }
+
+    fn route_to_model(
+        state: &ChatState,
+        content: &MessageContent,
+        model_id: Option<String>,
+    ) -> Result<MessageContent, String> {
+        match content {
+            MessageContent::Text(text) => {
+                // Route to text model
+                if let Some(model_id) = model_id {
+                    let models = state.models.lock().unwrap();
+                    if let Some(_model) = models.get(&model_id) {
+                        // For now, return a simple response
+                        // TODO: Implement actual model inference
+                        Ok(MessageContent::Text(format!("Echo from model {}: {}", &model_id[..8], text)))
+                    } else {
+                        Err("Model not found".to_string())
+                    }
+                } else {
+                    // Default text response
+                    Ok(MessageContent::Text(format!("I received your message: {}", text)))
+                }
+            }
+            MessageContent::Image { url: _, caption } => {
+                // Route to vision model
+                Ok(MessageContent::Text(format!(
+                    "I see an image{}. Image analysis would be processed here.",
+                    caption.as_ref().map(|c| format!(" with caption: {}", c)).unwrap_or_default()
+                )))
+            }
+            MessageContent::Mixed(contents) => {
+                // Handle multiple inputs
+                let mut responses = Vec::new();
+                for content in contents {
+                    if let Ok(response) = route_to_model(state, content, model_id.clone()) {
+                        responses.push(response);
+                    }
+                }
+                Ok(MessageContent::Mixed(responses))
+            }
+            _ => Ok(MessageContent::Text("I can process this type of content, but the handler isn't implemented yet.".to_string())),
+        }
+    }
+
+    pub async fn websocket_handler(
+        ws: WebSocketUpgrade,
+        State(state): State<ChatState>,
+    ) -> Response {
+        ws.on_upgrade(|socket| websocket_connection(socket, state))
+    }
+
+    async fn websocket_connection(socket: WebSocket, state: ChatState) {
+        let mut rx = state.tx.subscribe();
+        let (mut sender, mut receiver) = socket.split();
+
+        let send_task = tokio::spawn(async move {
+            while let Ok(msg) = rx.recv().await {
+                let json_msg = serde_json::to_string(&msg).unwrap();
+                if sender.send(Message::Text(json_msg)).await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        let recv_task = tokio::spawn(async move {
+            while let Some(msg) = receiver.next().await {
+                if let Ok(msg) = msg {
+                    if let Message::Text(text) = msg {
+                        tracing::info!("Received WebSocket message: {}", text);
+                    }
+                }
+            }
+        });
+
+        tokio::select! {
+            _ = send_task => {},
+            _ = recv_task => {},
+        }
+    }
+
+    pub async fn upload_file(
+        State(state): State<ChatState>,
+        mut multipart: Multipart,
+    ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+        let mut files = Vec::new();
+
+        while let Some(field) = multipart.next_field().await.map_err(|e| {
+            tracing::error!("Multipart error: {}", e);
+            (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": "Invalid multipart data" })),
+            )
+        })? {
+            if let Some(filename) = field.file_name().map(|s| s.to_string()) {
+                let content_type = field.content_type().unwrap_or("application/octet-stream").to_string();
+                let data = field.bytes().await.map_err(|e| {
+                    tracing::error!("File read error: {}", e);
+                    (
+                        StatusCode::BAD_REQUEST,
+                        Json(serde_json::json!({ "error": "Failed to read file" })),
+                    )
+                })?;
+
+                let file_id = Uuid::new_v4().to_string();
+                let file_path = format!("uploads/{}", file_id);
+
+                // Create uploads directory if it doesn't exist
+                tokio::fs::create_dir_all("uploads").await.map_err(|e| {
+                    tracing::error!("Directory creation error: {}", e);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({ "error": "Failed to create upload directory" })),
+                    )
+                })?;
+
+                // Save file to disk
+                tokio::fs::write(&file_path, &data).await.map_err(|e| {
+                    tracing::error!("File write error: {}", e);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({ "error": "Failed to save file" })),
+                    )
+                })?;
+
+                // Save file metadata to database
+                let now = Utc::now();
+                sqlx::query(
+                    r#"
+                    INSERT INTO files (id, filename, original_filename, mime_type, size_bytes, path, created_at, metadata)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    "#,
+                )
+                .bind(&file_id)
+                .bind(&file_id)
+                .bind(&filename)
+                .bind(&content_type)
+                .bind(data.len() as i64)
+                .bind(&file_path)
+                .bind(now.to_rfc3339())
+                .bind("")
+                .execute(&state.db)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Database error: {}", e);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({ "error": "Failed to save file metadata" })),
+                    )
+                })?;
+
+                files.push(serde_json::json!({
+                    "id": file_id,
+                    "filename": filename,
+                    "mime_type": content_type,
+                    "size": data.len(),
+                    "url": format!("/files/{}", file_id)
+                }));
+
+                tracing::info!("Uploaded file: {} ({} bytes)", filename, data.len());
+            }
+        }
+
+        Ok(Json(serde_json::json!({ "files": files })))
+    }
+
+    pub async fn serve_file(
+        State(state): State<ChatState>,
+        Path(file_id): Path<String>,
+    ) -> Result<Response, (StatusCode, Json<Value>)> {
+        let row = sqlx::query("SELECT path, mime_type, original_filename FROM files WHERE id = ?")
+            .bind(&file_id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| {
+                tracing::error!("Database error: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": "Database error" })),
+                )
+            })?;
+
+        let row = row.ok_or((
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "File not found" })),
+        ))?;
+
+        let file_path: String = row.get("path");
+        let mime_type: String = row.get("mime_type");
+        let original_filename: String = row.get("original_filename");
+
+        let file_data = tokio::fs::read(&file_path).await.map_err(|e| {
+            tracing::error!("File read error: {}", e);
+            (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "File not found on disk" })),
+            )
+        })?;
+
+        let headers = [
+            (header::CONTENT_TYPE, mime_type.as_str()),
+            (header::CONTENT_DISPOSITION, &format!("inline; filename=\"{}\"", original_filename)),
+        ];
+
+        Ok((headers, file_data).into_response())
+    }
+}
+
+// ============================================================================
+// AUTHENTICATION SYSTEM
+// ============================================================================
+
+mod auth {
+    use super::*;
+    use axum::http::HeaderMap;
+
+    const JWT_SECRET: &str = "your-secret-key-change-in-production"; // TODO: Use environment variable
+    
+    pub fn get_jwt_secret() -> String {
+        std::env::var("JWT_SECRET").unwrap_or_else(|_| JWT_SECRET.to_string())
+    }
+
+    #[derive(Serialize, Deserialize, Debug, Clone)]
+    pub struct User {
+        pub id: String,
+        pub username: String,
+        pub email: String,
+        pub created_at: DateTime<Utc>,
+    }
+
+    #[derive(Serialize, Deserialize, Debug)]
+    pub struct Claims {
+        pub user_id: String,
+        pub username: String,
+        pub exp: usize,
+    }
+
+    #[derive(Deserialize, Debug)]
+    pub struct RegisterRequest {
+        pub username: String,
+        pub email: String,
+        pub password: String,
+    }
+
+    #[derive(Deserialize, Debug)]
+    pub struct LoginRequest {
+        pub username: String,
+        pub password: String,
+    }
+
+    #[derive(Serialize, Debug)]
+    pub struct AuthResponse {
+        pub token: String,
+        pub user: User,
+    }
+
+    pub async fn init_auth_tables(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                username TEXT UNIQUE NOT NULL,
+                email TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            "#,
+        )
+        .execute(pool)
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn register(
+        State(state): State<api::AppState>,
+        Json(payload): Json<RegisterRequest>,
+    ) -> Result<Json<AuthResponse>, (StatusCode, Json<Value>)> {
+        // Validate and sanitize input
+        let username = match api::validate_username(&payload.username) {
+            Ok(u) => u,
+            Err(e) => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({ "error": e })),
+                ));
+            }
+        };
+
+        let email = match api::validate_email(&payload.email) {
+            Ok(e) => e,
+            Err(e) => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({ "error": e })),
+                ));
+            }
+        };
+
+        let _password = match api::validate_password(&payload.password) {
+            Ok(p) => p,
+            Err(e) => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({ "error": e })),
+                ));
+            }
+        };
+
+        // Check if user already exists
+        let existing_user = sqlx::query("SELECT id FROM users WHERE username = ? OR email = ?")
+            .bind(&username)
+            .bind(&email)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| {
+                tracing::error!("Database error: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": "Database error" })),
+                )
+            })?;
+
+        if existing_user.is_some() {
+            return Err((
+                StatusCode::CONFLICT,
+                Json(serde_json::json!({ "error": "Username or email already exists" })),
+            ));
+        }
+
+        // Hash password
+        let password_hash = hash(&payload.password, DEFAULT_COST).map_err(|e| {
+            tracing::error!("Password hashing error: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Failed to process password" })),
+            )
+        })?;
+
+        // Create user
+        let user_id = Uuid::new_v4().to_string();
+        let now = Utc::now();
+
+        sqlx::query(
+            r#"
+            INSERT INTO users (id, username, email, password_hash, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(&user_id)
+        .bind(&username)
+        .bind(&email)
+        .bind(&password_hash)
+        .bind(now.to_rfc3339())
+        .execute(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Database error: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Failed to create user" })),
+            )
+        })?;
+
+        let user = User {
+            id: user_id.clone(),
+            username: payload.username,
+            email: payload.email,
+            created_at: now,
+        };
+
+        // Generate JWT token
+        let token = generate_token(&user)?;
+
+        tracing::info!("User registered: {}", user.username);
+
+        Ok(Json(AuthResponse { token, user }))
+    }
+
+    pub async fn login(
+        State(state): State<api::AppState>,
+        Json(payload): Json<LoginRequest>,
+    ) -> Result<Json<AuthResponse>, (StatusCode, Json<Value>)> {
+        // Find user
+        let row = sqlx::query(
+            "SELECT id, username, email, password_hash, created_at FROM users WHERE username = ?",
+        )
+        .bind(&payload.username)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Database error: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Database error" })),
+            )
+        })?;
+
+        let row = row.ok_or((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": "Invalid username or password" })),
+        ))?;
+
+        // Verify password
+        let password_hash: String = row.get("password_hash");
+        let is_valid = verify(&payload.password, &password_hash).map_err(|e| {
+            tracing::error!("Password verification error: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Authentication error" })),
+            )
+        })?;
+
+        if !is_valid {
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({ "error": "Invalid username or password" })),
+            ));
+        }
+
+        let user = User {
+            id: row.get("id"),
+            username: row.get("username"),
+            email: row.get("email"),
+            created_at: DateTime::parse_from_rfc3339(&row.get::<String, _>("created_at"))
+                .unwrap()
+                .with_timezone(&Utc),
+        };
+
+        // Generate JWT token
+        let token = generate_token(&user)?;
+
+        tracing::info!("User logged in: {}", user.username);
+
+        Ok(Json(AuthResponse { token, user }))
+    }
+
+    pub fn generate_token(user: &User) -> Result<String, (StatusCode, Json<Value>)> {
+        let expiration = Utc::now()
+            .checked_add_signed(chrono::Duration::hours(24))
+            .expect("valid timestamp")
+            .timestamp() as usize;
+
+        let claims = Claims {
+            user_id: user.id.clone(),
+            username: user.username.clone(),
+            exp: expiration,
+        };
+
+        let token = encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret(get_jwt_secret().as_ref()),
+        )
+        .map_err(|e| {
+            tracing::error!("JWT encoding error: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Token generation failed" })),
+            )
+        })?;
+
+        Ok(token)
+    }
+
+    pub fn verify_token(token: &str) -> Result<Claims, (StatusCode, Json<Value>)> {
+        let token_data = decode::<Claims>(
+            token,
+            &DecodingKey::from_secret(get_jwt_secret().as_ref()),
+            &Validation::new(Algorithm::HS256),
+        )
+        .map_err(|e| {
+            tracing::debug!("JWT verification error: {}", e);
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({ "error": "Invalid token" })),
+            )
+        })?;
+
+        Ok(token_data.claims)
+    }
+
+    pub fn extract_user_from_headers(headers: &HeaderMap) -> Result<Claims, (StatusCode, Json<Value>)> {
+        let auth_header = headers
+            .get("authorization")
+            .ok_or((
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({ "error": "Missing authorization header" })),
+            ))?
+            .to_str()
+            .map_err(|_| {
+                (
+                    StatusCode::UNAUTHORIZED,
+                    Json(serde_json::json!({ "error": "Invalid authorization header" })),
+                )
+            })?;
+
+        if !auth_header.starts_with("Bearer ") {
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({ "error": "Invalid authorization format" })),
+            ));
+        }
+
+        let token = &auth_header[7..];
+        verify_token(token)
+    }
+
+    pub async fn get_current_user(
+        State(state): State<api::AppState>,
+        headers: HeaderMap,
+    ) -> Result<Json<User>, (StatusCode, Json<Value>)> {
+        let claims = extract_user_from_headers(&headers)?;
+
+        let row = sqlx::query("SELECT id, username, email, created_at FROM users WHERE id = ?")
+            .bind(&claims.user_id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| {
+                tracing::error!("Database error: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": "Database error" })),
+                )
+            })?;
+
+        let row = row.ok_or((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": "User not found" })),
+        ))?;
+
+        let user = User {
+            id: row.get("id"),
+            username: row.get("username"),
+            email: row.get("email"),
+            created_at: DateTime::parse_from_rfc3339(&row.get::<String, _>("created_at"))
+                .unwrap()
+                .with_timezone(&Utc),
+        };
+
+        Ok(Json(user))
+    }
+
+    pub async fn get_profile(
+        State(state): State<api::AppState>,
+        headers: HeaderMap,
+    ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+        let claims = extract_user_from_headers(&headers)?;
+
+        let row = sqlx::query("SELECT id, username, email, created_at, preferences FROM users WHERE id = ?")
+            .bind(&claims.user_id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| {
+                tracing::error!("Database error: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": "Database error" })),
+                )
+            })?;
+
+        let row = row.ok_or((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": "User not found" })),
+        ))?;
+
+        let preferences: Option<String> = row.get("preferences");
+        let user_profile = serde_json::json!({
+            "id": row.get::<String, _>("id"),
+            "username": row.get::<String, _>("username"),
+            "email": row.get::<String, _>("email"),
+            "created_at": row.get::<String, _>("created_at"),
+            "preferences": preferences.and_then(|p| serde_json::from_str(&p).ok()).unwrap_or(serde_json::json!({}))
+        });
+
+        Ok(Json(user_profile))
+    }
+
+    pub async fn update_profile(
+        State(state): State<api::AppState>,
+        headers: HeaderMap,
+        Json(update_data): Json<Value>,
+    ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+        let claims = extract_user_from_headers(&headers)?;
+
+        let mut update_fields = Vec::new();
+        let mut query_builder = sqlx::QueryBuilder::new("UPDATE users SET ");
+
+        if let Some(username) = update_data.get("username").and_then(|v| v.as_str()) {
+            if username.len() < 3 || username.len() > 50 {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({ "error": "Username must be between 3 and 50 characters" })),
+                ));
+            }
+            if !update_fields.is_empty() {
+                query_builder.push(", ");
+            }
+            query_builder.push("username = ");
+            query_builder.push_bind(username);
+            update_fields.push("username");
+        }
+
+        if let Some(email) = update_data.get("email").and_then(|v| v.as_str()) {
+            if !email.contains('@') {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({ "error": "Invalid email format" })),
+                ));
+            }
+            if !update_fields.is_empty() {
+                query_builder.push(", ");
+            }
+            query_builder.push("email = ");
+            query_builder.push_bind(email);
+            update_fields.push("email");
+        }
+
+        if let Some(preferences) = update_data.get("preferences") {
+            if !update_fields.is_empty() {
+                query_builder.push(", ");
+            }
+            query_builder.push("preferences = ");
+            query_builder.push_bind(serde_json::to_string(preferences).unwrap_or_else(|_| "{}".to_string()));
+            update_fields.push("preferences");
+        }
+
+        if update_fields.is_empty() {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": "No valid fields to update" })),
+            ));
+        }
+
+        query_builder.push(" WHERE id = ");
+        query_builder.push_bind(&claims.user_id);
+
+        let result = query_builder.build()
+            .execute(&state.db)
+            .await
+            .map_err(|e| {
+                tracing::error!("Database error: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": "Database error" })),
+                )
+            })?;
+
+        if result.rows_affected() == 0 {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "User not found" })),
+            ));
+        }
+
+        Ok(Json(serde_json::json!({ "message": "Profile updated successfully" })))
     }
 }
 
